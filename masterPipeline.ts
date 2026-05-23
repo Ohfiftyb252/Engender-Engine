@@ -1,9 +1,9 @@
-import { initializeSeedBranches } from "../engine/seed/branchSeed";
+import { initializeSeedBranches } from "./branchSeed";
 import {
   generateFingerprint,
   ENGINE_VERSION,
   MutationLineage
-} from "../engine/seed/fingerprint";
+} from "./fingerprint";
 
 export interface PipelineConfig {
   masterSeed: string;
@@ -24,7 +24,7 @@ function mockBuildGrid(genre: string, dna: string, rng: () => number) {
 
 export function runMasterPipeline(
   config: PipelineConfig,
-  previousTrackStructure: any = null
+  previousTrackStructure: unknown = null
 ) {
   const fingerprint = generateFingerprint(config);
   const branches = initializeSeedBranches(config.masterSeed);
@@ -75,7 +75,7 @@ export function runMasterPipeline(
   if (
     previousTrackStructure &&
     JSON.stringify(rawStructure.melody) ===
-      JSON.stringify(previousTrackStructure.melody)
+      JSON.stringify((previousTrackStructure as typeof rawStructure).melody)
   ) {
     return runMasterPipeline(
       {

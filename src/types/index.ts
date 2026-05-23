@@ -28,28 +28,28 @@ export interface MidiEvent {
 }
 
 export interface DNAProfile {
-  rhythmGapBias: number;       // 0–1: higher = more rests
-  repetitionBias: number;      // 0–1: higher = more repetition
-  melodicLeapChance: number;   // 0–1
-  bassDensity: number;         // 0–1
-  noteLengthModifier: number;  // multiplier on duration
-  tripletProbability: number;  // 0–1
-  velocityVariance: number;    // 0–127
+  rhythmGapBias: number;
+  repetitionBias: number;
+  melodicLeapChance: number;
+  bassDensity: number;
+  noteLengthModifier: number;
+  tripletProbability: number;
+  velocityVariance: number;
 }
 
 export interface GenreProfile {
   scaleBias: ScaleType[];
   bassRollChance: number;
   tripletChance: number;
-  melodyDensity: number;  // notes per bar
-  chordDensity: number;   // chords per bar
+  melodyDensity: number;
+  chordDensity: number;
   velocityRange: [number, number];
 }
 
 export interface TelemetryScores {
-  bounce: number;    // 0–100
-  pocket: number;    // 0–100
-  darkness: number;  // 0–100
+  bounce: number;
+  pocket: number;
+  darkness: number;
 }
 
 export interface MutationNode {
@@ -64,13 +64,18 @@ export interface EngineState {
   seed: number;
   genre: Genre;
   dna: DNAArchetype;
-  key: number;       // 0–11 (C=0 … B=11)
+  key: number;
   scale: ScaleType;
   bpm: number;
   mutationDepth: number;
   mutationPath: string[];
   mutationTree: MutationNode[];
   activeNodeId: string | null;
+  /**
+   * Per-voice mutation seeds. When present, the corresponding voice uses
+   * this seed instead of the master branch. Master seed is NEVER mutated.
+   */
+  voiceSeeds: Partial<Record<MutationTarget, number>>;
 }
 
 export interface GeneratedPack {

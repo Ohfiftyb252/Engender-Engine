@@ -2,36 +2,29 @@
 import MidiWriter from 'midi-writer-js';
 import type { MidiEvent } from '../types';
 
-const PPQ = 128; // pulses per quarter note (midi-writer-js default)
-const TICKS_PER_16TH = PPQ / 4; // 32 ticks per 16th note
+const PPQ = 128;                         // midi-writer-js default
+const TICKS_PER_16TH = PPQ / 4;         // 32 raw ticks per 16th-note grid tick
 
 /**
- * Convert an array of MidiEvents into a raw MIDI file Uint8Array.
- * trackName is embedded in the MIDI for DAW display.
+ * Build a MIDI track using absolute startTick positioning.
+ * This avoids all cursor-tracking issues and correctly places
+ * simultaneous chord notes without wait-time drift.
  */
 export function buildMidiTrack(events: MidiEvent[], trackName: string, bpm: number): Uint8Array {
   const track = new MidiWriter.Track();
   track.addTrackName(trackName);
   track.setTempo(bpm);
 
-  // Sort by position
-  const sorted = [...events].sort((a, b) => a.position - b.position);
-
-  let cursor = 0; // current position in 16th-note ticks
+  // Stable sort: position ascending, then pitch ascending for reproducibility
+  const sorted = [...events].sort((a, b) => a.position - b.position || a.pitch - b.pitch);
 
   for (const e of sorted) {
-    const waitTicks = Math.max(0, e.position - cursor);
-    const waitDuration = ticksToMidiDuration(waitTicks);
-    const noteDuration = ticksToMidiDuration(Math.max(1, e.duration));
-
     track.addNote({
       pitch: e.pitch,
-      duration: noteDuration,
-      wait: waitDuration,
-      velocity: Math.max(1, Math.min(100, Math.round(e.velocity / 127 * 100))),
+      duration: ticksToMidiDuration(Math.max(1, e.duration)),
+      startTick: e.position * TICKS_PER_16TH,
+      velocity: Math.max(1, Math.min(100, Math.round((e.velocity / 127) * 100))),
     });
-
-    cursor = e.position + e.duration;
   }
 
   const writer = new MidiWriter.Writer([track]);
@@ -39,26 +32,19 @@ export function buildMidiTrack(events: MidiEvent[], trackName: string, bpm: numb
   return base64ToUint8Array(b64.split(',')[1]);
 }
 
-/**
- * Convert 16th-note ticks to midi-writer-js duration string.
- * midi-writer-js uses: '1'=whole, '2'=half, '4'=quarter, '8'=eighth, '16'=16th
- * For non-standard durations we use tick notation: 'Tn' where n is raw PPQ ticks.
- */
 function ticksToMidiDuration(ticks: number): string {
   if (ticks === 0) return '0';
   const map: [number, string][] = [
-    [16, '1'],   // whole note = 16 sixteenths
-    [8,  '2'],   // half
-    [4,  '4'],   // quarter
-    [2,  '8'],   // eighth
-    [1,  '16'],  // sixteenth
+    [16, '1'],
+    [8,  '2'],
+    [4,  '4'],
+    [2,  '8'],
+    [1,  '16'],
   ];
   for (const [t, d] of map) {
     if (ticks === t) return d;
   }
-  // Fallback: express as raw ticks
-  const rawTicks = ticks * TICKS_PER_16TH;
-  return `T${rawTicks}`;
+  return `T${ticks * TICKS_PER_16TH}`;
 }
 
 function base64ToUint8Array(b64: string): Uint8Array {

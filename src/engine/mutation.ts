@@ -8,39 +8,43 @@ const MUTATION_SALT: Record<MutationTarget, number> = {
 };
 
 /**
- * Derive a mutated seed for a specific target that is independent from
- * the other voice seeds. The master seed and rhythm/pocket are preserved.
+ * Derive a per-voice mutation seed that is independent from the master seed
+ * and from other voices' mutation seeds.
  */
 export function deriveMutationSeed(
-  baseSeed: number,
+  masterSeed: number,
   target: MutationTarget,
   mutationDepth: number,
 ): number {
   const salt = MUTATION_SALT[target];
-  // Mix depth into salt so each mutation step produces a unique seed
-  return (baseSeed ^ salt ^ (mutationDepth * 0x9e3779b9)) >>> 0;
+  return (masterSeed ^ salt ^ (mutationDepth * 0x9e3779b9)) >>> 0;
 }
 
-/** Append a mutation node to the engine state and return updated state. */
+/**
+ * Append a mutation node. The master seed is NEVER changed.
+ * Only state.voiceSeeds[target] is updated so other voices remain identical.
+ */
 export function applyMutation(
   state: EngineState,
   target: MutationTarget,
 ): EngineState {
   const newDepth = state.mutationDepth + 1;
-  const newSeed = deriveMutationSeed(state.seed, target, newDepth);
+  // Derive from master seed so the lineage is always reproducible
+  const voiceSeed = deriveMutationSeed(state.seed, target, newDepth);
 
   const nodeId = `${target}_mut_${String(newDepth).padStart(2, '0')}`;
   const node: MutationNode = {
     id: nodeId,
     target,
-    seed: newSeed,
+    seed: voiceSeed,
     depth: newDepth,
     parentId: state.activeNodeId,
   };
 
   return {
     ...state,
-    seed: newSeed,
+    // seed is intentionally NOT changed — master seed is immutable
+    voiceSeeds: { ...state.voiceSeeds, [target]: voiceSeed },
     mutationDepth: newDepth,
     mutationPath: [...state.mutationPath, nodeId],
     mutationTree: [...state.mutationTree, node],
@@ -48,7 +52,6 @@ export function applyMutation(
   };
 }
 
-/** Verify mutation seed determinism. */
 export function verifyMutationDeterminism(
   seed: number,
   target: MutationTarget,

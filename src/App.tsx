@@ -1,4 +1,5 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { EnginePlayer } from './audio/player';
 import type { EngineState, GeneratedPack, MutationTarget, Snapshot } from './types';
 import { generateFresh, mutateVoice, recallFromSeed } from './engine/index';
 import { measureSimilarity } from './engine/cloneShield';
@@ -38,7 +39,57 @@ export default function App() {
   const [scale, setScale] = useState<EngineState['scale']>('harmonicMinor');
   const [bpm, setBpm] = useState(140);
   const [seedInput, setSeedInput] = useState('');
+  const [playing, setPlaying] = useState(false);
+  const [audioLoading, setAudioLoading] = useState(false);
+  const [mutedVoices, setMutedVoices] = useState<Set<MutationTarget>>(new Set());
+  const playerRef = useRef<EnginePlayer>(new EnginePlayer());
   const tapTimesRef = useRef<number[]>([]);
+
+  // Stop playback and discard loaded pack when a new skeleton is generated/mutated
+  useEffect(() => {
+    const player = playerRef.current;
+    if (player.playing) {
+      player.stop();
+      setPlaying(false);
+    }
+  }, [pack]);
+
+  // Dispose audio engine on unmount
+  useEffect(() => {
+    const player = playerRef.current;
+    return () => { player.dispose(); };
+  }, []);
+
+  const handlePlayStop = useCallback(async () => {
+    const player = playerRef.current;
+    if (playing) {
+      player.stop();
+      setPlaying(false);
+    } else {
+      if (!pack) return;
+      setAudioLoading(true);
+      setMutedVoices(new Set());
+      try {
+        await player.load(pack);
+        player.play();
+        setPlaying(true);
+      } catch (e) {
+        showToast('AUDIO ERROR', 'error');
+        console.error(e);
+      }
+      setAudioLoading(false);
+    }
+  }, [playing, pack, showToast]);
+
+  const handleMuteToggle = useCallback((voice: MutationTarget) => {
+    playerRef.current.toggleMute(voice);
+    setMutedVoices(prev => {
+      const next = new Set(prev);
+      if (next.has(voice)) next.delete(voice);
+      else next.add(voice);
+      return next;
+    });
+  }, []);
 
   const handleTapTempo = useCallback(() => {
     const now = Date.now();
@@ -175,6 +226,31 @@ export default function App() {
                 <div className="tel-bar"><div className={`tel-bar-fill ${k}`} style={{ width: `${scores[k]}%` }} /></div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+      {pack && (
+        <div className="section">
+          <div className="section-label">PREVIEW</div>
+          <div className="preview-controls">
+            <button
+              className={`btn-play${playing ? ' playing' : ''}`}
+              onClick={handlePlayStop}
+              disabled={audioLoading}
+            >
+              {audioLoading ? '⧗ LOADING AUDIO…' : playing ? '■ STOP PREVIEW' : '▶ PLAY PREVIEW'}
+            </button>
+            <div className="voice-mutes">
+              {(['chords', 'melody', 'bass'] as const).map(voice => (
+                <button
+                  key={voice}
+                  className={`btn-mute ${mutedVoices.has(voice) ? 'muted' : `active-${voice}`}`}
+                  onClick={() => handleMuteToggle(voice)}
+                >
+                  {voice.toUpperCase()}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}

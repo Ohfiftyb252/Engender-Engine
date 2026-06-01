@@ -223,7 +223,7 @@ export default function App() {
       </div>
       <div className="generate-section">
         <button className={`btn-generate${generating ? ' generating' : ''}`} onClick={handleGenerate} disabled={generating}>
-          {generating ? 'GENERATING…' : '▶ GENERATE SKELETON'}
+          {generating ? 'GENERATING…' : '▶ GENERATE'}
         </button>
       </div>
       {scores && (
@@ -308,7 +308,7 @@ export default function App() {
       </div>
       <div className="section export-section">
         <div className="section-label">EXPORT</div>
-        {!pack && <div className="empty-state">GENERATE A SKELETON TO UNLOCK EXPORT</div>}
+        {!pack && <div className="empty-state">GENERATE A PACK TO UNLOCK EXPORT</div>}
         {pack && (
           <div className="export-btns">
             <button

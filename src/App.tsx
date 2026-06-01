@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { EnginePlayer } from './audio/player';
+import { EnginePlayer, bounceToWav } from './audio/player';
 import type { EngineState, GeneratedPack, MutationTarget, Snapshot } from './types';
 import { generateFresh, mutateVoice, recallFromSeed } from './engine/index';
 import { measureSimilarity } from './engine/cloneShield';
@@ -31,6 +31,7 @@ export default function App() {
   const [prevPack, setPrevPack] = useState<GeneratedPack | null>(null);
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [bouncing, setBouncing] = useState(false);
   const [snapshots, setSnapshots] = useState<Snapshot[]>(loadSnapshots);
   const { toast, showToast } = useToast();
   const [genre, setGenre] = useState<EngineState['genre']>('darkTrap');
@@ -137,6 +138,16 @@ export default function App() {
     } catch (e) { showToast('EXPORT FAILED', 'error'); console.error(e); }
     setExporting(false);
   }, [pack, exporting, showToast]);
+
+  const handleBounce = useCallback(async () => {
+    if (!pack || bouncing) return;
+    setBouncing(true);
+    try {
+      await bounceToWav(pack);
+      showToast(`BOUNCED EngenderEngine_${pack.fingerprint}_${pack.state.bpm}BPM.wav`);
+    } catch (e) { showToast('BOUNCE FAILED', 'error'); console.error(e); }
+    setBouncing(false);
+  }, [pack, bouncing, showToast]);
 
   const handleSaveSnapshot = useCallback(() => {
     if (!pack) return;
@@ -295,12 +306,31 @@ export default function App() {
           ))}
         </div>
       </div>
-      <div className="export-bar">
-        <button className={`btn-export${exporting ? ' exporting' : ''}`} onClick={handleExport} disabled={!pack || exporting}>
-          <span>{exporting ? '⧗ BUILDING ZIP…' : '⤓ EXPORT MIDI PACK'}</span>
-          {pack && <span style={{ opacity: 0.5, fontSize: '9px', letterSpacing: '0.1em' }}>3 MIDI + MANIFEST</span>}
-        </button>
+      <div className="section export-section">
+        <div className="section-label">EXPORT</div>
+        {!pack && <div className="empty-state">GENERATE A SKELETON TO UNLOCK EXPORT</div>}
+        {pack && (
+          <div className="export-btns">
+            <button
+              className={`btn-export-midi${exporting ? ' exporting' : ''}`}
+              onClick={handleExport}
+              disabled={exporting}
+            >
+              <span>{exporting ? '⧗ BUILDING ZIP…' : '⤓ EXPORT MIDI PACK'}</span>
+              <span className="export-sub">3 MIDI + MANIFEST</span>
+            </button>
+            <button
+              className={`btn-bounce${bouncing ? ' bouncing' : ''}`}
+              onClick={handleBounce}
+              disabled={bouncing}
+            >
+              <span>{bouncing ? '⧗ BOUNCING…' : '◎ BOUNCE TO WAV'}</span>
+              <span className="export-sub">4 BAR AUDIO RENDER</span>
+            </button>
+          </div>
+        )}
       </div>
+      <div style={{ height: '32px' }} />
     </div>
   );
 }

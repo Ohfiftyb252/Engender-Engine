@@ -3,8 +3,8 @@ import type { EngineState } from '../types';
 const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 export function generateFingerprint(state: EngineState): string {
-  const { seed, genre, dna, key, scale, bpm, mutationDepth, mutationPath } = state;
-  const str = `${seed}:${genre}:${dna}:${key}:${scale}:${bpm}:${mutationDepth}:${mutationPath.join(',')}`;
+  const { seed, genre, dna, key, scale, bpm, bars, mutationDepth, mutationPath } = state;
+  const str = `${seed}:${genre}:${dna}:${key}:${scale}:${bpm}:${bars ?? 4}:${mutationDepth}:${mutationPath.join(',')}`;
   let h = 0x811c9dc5;
   for (let i = 0; i < str.length; i++) {
     h ^= str.charCodeAt(i);

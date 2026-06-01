@@ -37,15 +37,17 @@ export class EnginePlayer {
     this.dispose();
     await Tone.start();
 
+    const bars = pack.state.bars ?? 4;
+    const loopEnd = `${bars}m`;
+
     Tone.Transport.bpm.value = pack.state.bpm;
     Tone.Transport.loop = true;
     Tone.Transport.loopStart = 0;
-    Tone.Transport.loopEnd = '4m';
+    Tone.Transport.loopEnd = loopEnd;
 
     const s16 = 60 / pack.state.bpm / 4;
 
     // ─── 808 BASS ───────────────────────────────────────────────────────────
-    // Portamento sine → distortion → lowpass → destination
     this.bassSynth = new Tone.MonoSynth({
       portamento: 0.08,
       oscillator: { type: 'sine' },
@@ -58,7 +60,6 @@ export class EnginePlayer {
     this.fx.push(bassDist, bassLpf);
 
     // ─── DARK CHORD PAD ─────────────────────────────────────────────────────
-    // Sawtooth PolySynth → lowpass → long reverb
     this.chordsSynth = new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: 'sawtooth' },
       envelope: { attack: 0.15, decay: 0.4, sustain: 0.6, release: 3.5 },
@@ -71,7 +72,6 @@ export class EnginePlayer {
     this.fx.push(chordsLpf, chordsVerb);
 
     // ─── DARK MELODY LEAD ───────────────────────────────────────────────────
-    // Triangle synth → feedback delay → reverb
     this.melodySynth = new Tone.Synth({
       oscillator: { type: 'triangle' },
       envelope: { attack: 0.04, decay: 0.15, sustain: 0.5, release: 0.6 },
@@ -90,7 +90,7 @@ export class EnginePlayer {
     ): Tone.Part<PartEvent> => {
       const part = new Tone.Part<PartEvent>(trigger, mapEvents(events));
       part.loop = true;
-      part.loopEnd = '4m';
+      part.loopEnd = loopEnd;
       part.start(0);
       return part;
     };
@@ -156,20 +156,21 @@ export class EnginePlayer {
 }
 
 // ─── BOUNCE TO WAV ──────────────────────────────────────────────────────────
-// Uses Tone.Offline to render 4 bars to a 16-bit stereo WAV.
+// Uses Tone.Offline to render bars×loopMode bars to a 16-bit stereo WAV.
 // Scheduling uses raw seconds (not BBT strings) so offline transport fires correctly.
 
-export async function bounceToWav(pack: GeneratedPack): Promise<void> {
+export async function bounceToWav(pack: GeneratedPack, loopMode: 1 | 2 | 4 = 1): Promise<void> {
   const bpm = pack.state.bpm;
+  const bars = pack.state.bars ?? 4;
   const s16 = 60 / bpm / 4;
-  const barLen = 4 * (60 / bpm);          // seconds per bar
-  const durationSecs = 4 * barLen + 1.5;  // 4 bars + reverb tail
+  const barLen = 4 * (60 / bpm);
+  const patternSecs = bars * barLen;
+  const durationSecs = loopMode * patternSecs + 1.5;  // + reverb tail
 
   const toneBuffer = await Tone.Offline(async (ctx) => {
     ctx.transport.bpm.value = bpm;
     ctx.transport.start(0);
 
-    // Bass
     const bassS = new Tone.MonoSynth({
       portamento: 0.08,
       oscillator: { type: 'sine' },
@@ -177,45 +178,48 @@ export async function bounceToWav(pack: GeneratedPack): Promise<void> {
       volume: 2,
     }).toDestination();
 
-    // Chords
     const chordsS = new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: 'sawtooth' },
       envelope: { attack: 0.15, decay: 0.4, sustain: 0.6, release: 3.5 },
       volume: -12,
     }).toDestination();
 
-    // Melody
     const melodyS = new Tone.Synth({
       oscillator: { type: 'triangle' },
       envelope: { attack: 0.04, decay: 0.15, sustain: 0.5, release: 0.6 },
       volume: -8,
     }).toDestination();
 
-    // Schedule every event using seconds-based transport time
-    pack.bass.forEach(e => {
-      ctx.transport.scheduleOnce(t => {
-        bassS.triggerAttackRelease(
-          Tone.Frequency(e.pitch, 'midi').toNote(),
-          Math.max(1, e.duration) * s16, t, (e.velocity / 127) * 0.95
-        );
-      }, e.position * s16);
-    });
-    pack.chords.forEach(e => {
-      ctx.transport.scheduleOnce(t => {
-        chordsS.triggerAttackRelease(
-          Tone.Frequency(e.pitch, 'midi').toNote(),
-          Math.max(1, e.duration) * s16, t, (e.velocity / 127) * 0.82
-        );
-      }, e.position * s16);
-    });
-    pack.melody.forEach(e => {
-      ctx.transport.scheduleOnce(t => {
-        melodyS.triggerAttackRelease(
-          Tone.Frequency(e.pitch, 'midi').toNote(),
-          Math.max(1, e.duration) * s16, t, (e.velocity / 127) * 0.88
-        );
-      }, e.position * s16);
-    });
+    for (let loopIdx = 0; loopIdx < loopMode; loopIdx++) {
+      const offset = loopIdx * bars * 16 * s16;
+
+      pack.bass.forEach(e => {
+        ctx.transport.scheduleOnce(t => {
+          bassS.triggerAttackRelease(
+            Tone.Frequency(e.pitch, 'midi').toNote(),
+            Math.max(1, e.duration) * s16, t, (e.velocity / 127) * 0.95
+          );
+        }, e.position * s16 + offset);
+      });
+
+      pack.chords.forEach(e => {
+        ctx.transport.scheduleOnce(t => {
+          chordsS.triggerAttackRelease(
+            Tone.Frequency(e.pitch, 'midi').toNote(),
+            Math.max(1, e.duration) * s16, t, (e.velocity / 127) * 0.82
+          );
+        }, e.position * s16 + offset);
+      });
+
+      pack.melody.forEach(e => {
+        ctx.transport.scheduleOnce(t => {
+          melodyS.triggerAttackRelease(
+            Tone.Frequency(e.pitch, 'midi').toNote(),
+            Math.max(1, e.duration) * s16, t, (e.velocity / 127) * 0.88
+          );
+        }, e.position * s16 + offset);
+      });
+    }
   }, durationSecs);
 
   const raw = toneBuffer.get();
@@ -226,7 +230,7 @@ export async function bounceToWav(pack: GeneratedPack): Promise<void> {
   const url  = URL.createObjectURL(blob);
   const a    = document.createElement('a');
   a.href     = url;
-  a.download = `EngenderEngine_${pack.fingerprint}_${pack.state.bpm}BPM.wav`;
+  a.download = `EngenderEngine_${pack.fingerprint}_${pack.state.bpm}BPM_${loopMode}x.wav`;
   document.body.appendChild(a);
   a.click();
   setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);

@@ -5,7 +5,7 @@ import { generateFresh, mutateVoice, recallFromSeed } from './engine/index';
 import { measureSimilarity } from './engine/cloneShield';
 import { buildZip, downloadZip } from './export/zip';
 import { loadSnapshots, saveSnapshot, deleteSnapshot } from './storage/snapshots';
-import { NOTE_NAMES } from './engine/scale';
+import { NOTE_NAMES, validateScaleNotes } from './engine/scale';
 
 const GENRES = ['darkTrap', 'ukDrill', 'phonk', 'jerseyClub'] as const;
 const DNA_LIST = ['pressure', 'hypnotic', 'chaotic', 'ominous', 'paranoid', 'unstable', 'cinematic', 'emptyRoom'] as const;
@@ -39,14 +39,17 @@ export default function App() {
   const [key, setKey] = useState(0);
   const [scale, setScale] = useState<EngineState['scale']>('harmonicMinor');
   const [bpm, setBpm] = useState(140);
+  const [bars, setBars] = useState(4);
+  const [loopMode, setLoopMode] = useState<1 | 2 | 4>(1);
   const [seedInput, setSeedInput] = useState('');
   const [playing, setPlaying] = useState(false);
   const [audioLoading, setAudioLoading] = useState(false);
   const [mutedVoices, setMutedVoices] = useState<Set<MutationTarget>>(new Set());
+  const [isStale, setIsStale] = useState(false);
   const playerRef = useRef<EnginePlayer>(new EnginePlayer());
   const tapTimesRef = useRef<number[]>([]);
 
-  // Stop playback and discard loaded pack when a new skeleton is generated/mutated
+  // Stop playback when pack changes
   useEffect(() => {
     const player = playerRef.current;
     if (player.playing) {
@@ -60,6 +63,25 @@ export default function App() {
     const player = playerRef.current;
     return () => { player.dispose(); };
   }, []);
+
+  // Stale detection — compares live UI params against the canonical generated state
+  useEffect(() => {
+    if (!pack) { setIsStale(false); return; }
+    const rawSeed = seedInput.trim();
+    const parsedSeed = rawSeed
+      ? (parseInt(rawSeed, 16) || parseInt(rawSeed, 10))
+      : undefined;
+    const seedDiffers = parsedSeed !== pack.state.seed;
+    const stale =
+      genre !== pack.state.genre ||
+      dna !== pack.state.dna ||
+      key !== pack.state.key ||
+      scale !== pack.state.scale ||
+      bpm !== pack.state.bpm ||
+      bars !== (pack.state.bars ?? 4) ||
+      seedDiffers;
+    setIsStale(stale);
+  }, [pack, genre, dna, key, scale, bpm, bars, seedInput]);
 
   const handlePlayStop = useCallback(async () => {
     const player = playerRef.current;
@@ -106,20 +128,22 @@ export default function App() {
     setTimeout(() => {
       try {
         const parsedSeed = seedInput ? (parseInt(seedInput, 16) || parseInt(seedInput, 10)) : undefined;
-        const newPack = generateFresh({ genre, dna, key, scale, bpm, seed: parsedSeed });
+        const newPack = generateFresh({ genre, dna, key, scale, bpm, bars, seed: parsedSeed });
         if (prevPack) {
           const sim = measureSimilarity(prevPack, newPack);
           if (sim.blocked) {
             showToast('CLONE DETECTED — REGENERATING', 'error');
-            const regen = generateFresh({ genre, dna, key, scale, bpm });
+            const regen = generateFresh({ genre, dna, key, scale, bpm, bars });
+            setSeedInput(regen.state.seed.toString(16).toUpperCase());
             setPrevPack(newPack); setPack(regen); setGenerating(false); return;
           }
         }
+        setSeedInput(newPack.state.seed.toString(16).toUpperCase());
         setPrevPack(pack); setPack(newPack);
       } catch (e) { showToast('ENGINE ERROR', 'error'); console.error(e); }
       setGenerating(false);
     }, 10);
-  }, [genre, dna, key, scale, bpm, seedInput, pack, prevPack, showToast]);
+  }, [genre, dna, key, scale, bpm, bars, seedInput, pack, prevPack, showToast]);
 
   const handleMutate = useCallback((target: MutationTarget) => {
     if (!pack) return;
@@ -132,22 +156,22 @@ export default function App() {
     if (!pack || exporting) return;
     setExporting(true);
     try {
-      const blob = await buildZip(pack);
-      downloadZip(blob, pack.fingerprint, pack.state.bpm);
+      const blob = await buildZip(pack, loopMode);
+      downloadZip(blob, pack.fingerprint, pack.state.bpm, pack.state.bars ?? 4);
       showToast(`EXPORTED EngenderEngine_${pack.fingerprint}_${pack.state.bpm}BPM.zip`);
     } catch (e) { showToast('EXPORT FAILED', 'error'); console.error(e); }
     setExporting(false);
-  }, [pack, exporting, showToast]);
+  }, [pack, exporting, loopMode, showToast]);
 
   const handleBounce = useCallback(async () => {
     if (!pack || bouncing) return;
     setBouncing(true);
     try {
-      await bounceToWav(pack);
-      showToast(`BOUNCED EngenderEngine_${pack.fingerprint}_${pack.state.bpm}BPM.wav`);
+      await bounceToWav(pack, loopMode);
+      showToast(`BOUNCED EngenderEngine_${pack.fingerprint}_${pack.state.bpm}BPM_${loopMode}x.wav`);
     } catch (e) { showToast('BOUNCE FAILED', 'error'); console.error(e); }
     setBouncing(false);
-  }, [pack, bouncing, showToast]);
+  }, [pack, bouncing, loopMode, showToast]);
 
   const handleSaveSnapshot = useCallback(() => {
     if (!pack) return;
@@ -158,7 +182,7 @@ export default function App() {
   const handleRecallSnapshot = useCallback((snap: Snapshot) => {
     setPrevPack(pack); setPack(recallFromSeed(snap.state));
     setGenre(snap.state.genre); setDna(snap.state.dna); setKey(snap.state.key);
-    setScale(snap.state.scale); setBpm(snap.state.bpm);
+    setScale(snap.state.scale); setBpm(snap.state.bpm); setBars(snap.state.bars ?? 4);
     setSeedInput(snap.state.seed.toString(16).toUpperCase());
     showToast(`RECALLED ${snap.fingerprint}`);
   }, [pack, showToast]);
@@ -170,6 +194,7 @@ export default function App() {
   const scores = pack?.scores;
   const fingerprint = pack?.fingerprint ?? '------';
   const tree = pack?.state.mutationTree ?? [];
+  const scaleValidation = pack ? validateScaleNotes(pack.melody, pack.state.key, pack.state.scale) : null;
 
   return (
     <div className="app">
@@ -205,12 +230,19 @@ export default function App() {
               {SCALES.map(s => <option key={s} value={s}>{SCALE_LABELS[s]}</option>)}
             </select>
           </div>
-          <div className="control-group full-width">
+          <div className="control-group">
             <label className="control-label">BPM</label>
             <div className="bpm-row">
               <input type="number" min={60} max={220} value={bpm} onChange={e => setBpm(Math.max(60, Math.min(220, Number(e.target.value))))} />
               <button className="bpm-tap" onClick={handleTapTempo}>TAP</button>
             </div>
+          </div>
+          <div className="control-group">
+            <label className="control-label">BARS</label>
+            <select value={bars} onChange={e => setBars(Number(e.target.value))}>
+              <option value={4}>4 BARS</option>
+              <option value={5}>5 BARS (EXP)</option>
+            </select>
           </div>
           <div className="control-group full-width">
             <label className="control-label">SEED (HEX or decimal — blank = random)</label>
@@ -238,6 +270,15 @@ export default function App() {
               </div>
             ))}
           </div>
+          {scaleValidation && scaleValidation.passingTones > 0 && (
+            <div className="scale-validation">
+              <span className="scale-val-label">SCALE CHECK</span>
+              <span className="scale-val-result">
+                {scaleValidation.inScale}/{scaleValidation.total} IN SCALE
+                {' • '}{scaleValidation.passingTones} PASSING TONE{scaleValidation.passingTones !== 1 ? 'S' : ''}
+              </span>
+            </div>
+          )}
         </div>
       )}
       {pack && (
@@ -310,24 +351,37 @@ export default function App() {
         <div className="section-label">EXPORT</div>
         {!pack && <div className="empty-state">GENERATE A PACK TO UNLOCK EXPORT</div>}
         {pack && (
-          <div className="export-btns">
-            <button
-              className={`btn-export-midi${exporting ? ' exporting' : ''}`}
-              onClick={handleExport}
-              disabled={exporting}
-            >
-              <span>{exporting ? '⧗ BUILDING ZIP…' : '⤓ EXPORT MIDI PACK'}</span>
-              <span className="export-sub">3 MIDI + MANIFEST</span>
-            </button>
-            <button
-              className={`btn-bounce${bouncing ? ' bouncing' : ''}`}
-              onClick={handleBounce}
-              disabled={bouncing}
-            >
-              <span>{bouncing ? '⧗ BOUNCING…' : '◎ BOUNCE TO WAV'}</span>
-              <span className="export-sub">4 BAR AUDIO RENDER</span>
-            </button>
-          </div>
+          <>
+            <div className="control-group export-loop-control">
+              <label className="control-label">WAV LOOP MODE</label>
+              <select value={loopMode} onChange={e => setLoopMode(Number(e.target.value) as 1 | 2 | 4)}>
+                <option value={1}>1× — {bars} BARS</option>
+                <option value={2}>2× — {bars * 2} BARS</option>
+                <option value={4}>4× — {bars * 4} BARS</option>
+              </select>
+            </div>
+            {isStale && (
+              <div className="stale-warning">⚠ SETTINGS CHANGED — REGENERATE BEFORE EXPORT</div>
+            )}
+            <div className="export-btns">
+              <button
+                className={`btn-export-midi${exporting ? ' exporting' : ''}`}
+                onClick={handleExport}
+                disabled={exporting || isStale}
+              >
+                <span>{exporting ? '⧗ BUILDING ZIP…' : '⤓ EXPORT MIDI PACK'}</span>
+                <span className="export-sub">3 MIDI + MANIFEST</span>
+              </button>
+              <button
+                className={`btn-bounce${bouncing ? ' bouncing' : ''}`}
+                onClick={handleBounce}
+                disabled={bouncing || isStale}
+              >
+                <span>{bouncing ? '⧗ BOUNCING…' : '◎ BOUNCE TO WAV'}</span>
+                <span className="export-sub">{bars * loopMode} BAR AUDIO RENDER</span>
+              </button>
+            </div>
+          </>
         )}
       </div>
       <div style={{ height: '32px' }} />

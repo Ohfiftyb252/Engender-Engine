@@ -1,19 +1,19 @@
 import type { DNAProfile, GenreProfile, MidiEvent, ScaleType } from '../types';
 import { buildScalePitches } from './scale';
-import { buildRhythmGrid, buildRollPositions, TOTAL_TICKS } from './grid';
+import { buildRhythmGrid, buildRollPositions } from './grid';
 import { randInt, randPick } from './prng';
 
 const BASS_MIN = 24;
 const BASS_MAX = 42;
 
-export function generateBass(rng: () => number, dna: DNAProfile, genre: GenreProfile, key: number, scale: ScaleType, chordEvents: MidiEvent[]): MidiEvent[] {
+export function generateBass(rng: () => number, dna: DNAProfile, genre: GenreProfile, key: number, scale: ScaleType, chordEvents: MidiEvent[], totalTicks = 64, bars = 4): MidiEvent[] {
   const scalePitches = buildScalePitches(key, scale, BASS_MIN, BASS_MAX);
   if (scalePitches.length === 0) return [];
 
   const targetNotes = Math.round(8 * dna.bassDensity * (1 - dna.rhythmGapBias * 0.3));
-  const grid = buildRhythmGrid(rng, dna, genre, Math.max(4, targetNotes), genre.bassRollChance > 0.4);
+  const grid = buildRhythmGrid(rng, dna, genre, Math.max(4, targetNotes), genre.bassRollChance > 0.4, totalTicks);
   const [velMin, velMax] = genre.velocityRange;
-  const barStarts = [0, 16, 32, 48];
+  const barStarts = Array.from({ length: bars }, (_, i) => i * 16);
   const chordAtBar = getChordRootsAtBeats(chordEvents, barStarts, key);
   const events: MidiEvent[] = [];
 
@@ -32,14 +32,14 @@ export function generateBass(rng: () => number, dna: DNAProfile, genre: GenrePro
     events.push({ position: slot.position, pitch, duration, velocity });
   }
 
-  const rollPositions = buildRollPositions(rng, genre.bassRollChance * dna.bassDensity);
+  const rollPositions = buildRollPositions(rng, genre.bassRollChance * dna.bassDensity, bars);
   for (const rollPos of rollPositions) {
     const rollLen = randInt(rng, 2, 4);
     const rootPitches = scalePitches.filter(p => (p - key + 12) % 12 === 0);
     const rollRoot = rootPitches.length > 0 ? randPick(rng, rootPitches) : randPick(rng, scalePitches);
     for (let i = 0; i < rollLen; i++) {
       const pos = rollPos + i;
-      if (pos >= TOTAL_TICKS) break;
+      if (pos >= totalTicks) break;
       events.push({ position: pos, pitch: rollRoot, duration: 1, velocity: Math.max(50, Math.min(127, randInt(rng, velMin, velMax - 10 + i * 3))) });
     }
   }

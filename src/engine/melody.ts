@@ -6,14 +6,14 @@ import { randInt } from './prng';
 const MEL_MIN = 60;
 const MEL_MAX = 96;
 
-export function generateMelody(rng: () => number, dna: DNAProfile, genre: GenreProfile, key: number, scale: ScaleType): MidiEvent[] {
+export function generateMelody(rng: () => number, dna: DNAProfile, genre: GenreProfile, key: number, scale: ScaleType, totalTicks = 64): MidiEvent[] {
   const scalePitches = buildScalePitches(key, scale, MEL_MIN, MEL_MAX);
   const allPitches: number[] = [];
   for (let p = MEL_MIN; p <= MEL_MAX; p++) allPitches.push(p);
   if (scalePitches.length === 0) return [];
 
   const targetNotes = Math.round(genre.melodyDensity * 4 * (1 - dna.rhythmGapBias * 0.6));
-  const grid = buildRhythmGrid(rng, dna, genre, Math.max(3, targetNotes), true);
+  const grid = buildRhythmGrid(rng, dna, genre, Math.max(3, targetNotes), true, totalTicks);
   const events: MidiEvent[] = [];
   const [velMin, velMax] = genre.velocityRange;
   let prevPitch = scalePitches[Math.floor(scalePitches.length / 2)];

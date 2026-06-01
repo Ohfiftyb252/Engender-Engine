@@ -9,10 +9,10 @@ export interface GridSlot {
 
 export const TOTAL_TICKS = 64;
 
-export function buildRhythmGrid(rng: () => number, dna: DNAProfile, genre: GenreProfile, targetNotes: number, allowTriplets: boolean): GridSlot[] {
+export function buildRhythmGrid(rng: () => number, dna: DNAProfile, genre: GenreProfile, targetNotes: number, allowTriplets: boolean, totalTicks = TOTAL_TICKS): GridSlot[] {
   const slots: GridSlot[] = [];
   const usedPositions = new Set<number>();
-  const tripletPositions = buildTripletPositions();
+  const tripletPositions = buildTripletPositions(totalTicks);
   let attempts = 0;
 
   while (slots.filter(s => s.active).length < targetNotes && attempts < 200) {
@@ -22,7 +22,7 @@ export function buildRhythmGrid(rng: () => number, dna: DNAProfile, genre: Genre
     if (useTriplet) {
       pos = tripletPositions[Math.floor(rng() * tripletPositions.length)];
     } else {
-      pos = randInt(rng, 0, TOTAL_TICKS - 1);
+      pos = randInt(rng, 0, totalTicks - 1);
       if (rng() < 0.6) pos = Math.round(pos / 2) * 2;
     }
     if (usedPositions.has(pos)) continue;
@@ -45,17 +45,24 @@ function pickDuration(rng: () => number, dna: DNAProfile): number {
   return Math.round(1 + rng() * (4 * dna.noteLengthModifier));
 }
 
-function buildTripletPositions(): number[] {
+function buildTripletPositions(totalTicks = TOTAL_TICKS): number[] {
+  const beats = totalTicks / 4;
   const positions: number[] = [];
-  for (let beat = 0; beat < 16; beat++) {
+  for (let beat = 0; beat < beats; beat++) {
     positions.push(beat * 4);
     positions.push(Math.round(beat * 4 + 4 / 3));
     positions.push(Math.round(beat * 4 + 8 / 3));
   }
-  return [...new Set(positions)].filter(p => p < TOTAL_TICKS);
+  return [...new Set(positions)].filter(p => p < totalTicks);
 }
 
-export function buildRollPositions(rng: () => number, density: number): number[] {
-  const barEnds = [28, 30, 60, 62];
+export function buildRollPositions(rng: () => number, density: number, bars = 4): number[] {
+  const barEnds: number[] = [];
+  for (let b = 2; b <= bars; b += 2) {
+    barEnds.push(b * 16 - 4, b * 16 - 2);
+  }
+  if (bars % 2 === 1) {
+    barEnds.push(bars * 16 - 4, bars * 16 - 2);
+  }
   return barEnds.filter(() => rng() < density);
 }

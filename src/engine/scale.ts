@@ -1,4 +1,4 @@
-import type { ScaleType } from '../types';
+import type { MidiEvent, ScaleType } from '../types';
 
 export const SCALE_INTERVALS: Record<ScaleType, number[]> = {
   harmonicMinor:    [0, 2, 3, 5, 7, 8, 11],
@@ -32,4 +32,21 @@ export function pickPitchWithBias(rng: () => number, scalePitches: number[], all
   const outside = allPitches.filter(p => !scalePitches.includes(p));
   if (outside.length === 0) return scalePitches[Math.floor(rng() * scalePitches.length)];
   return outside[Math.floor(rng() * outside.length)];
+}
+
+export function validateScaleNotes(events: MidiEvent[], key: number, scale: ScaleType): {
+  total: number;
+  inScale: number;
+  passingTones: number;
+} {
+  const intervals = SCALE_INTERVALS[scale];
+  let inScale = 0;
+  let passing = 0;
+  const uniquePitches = new Set(events.map(e => e.pitch));
+  for (const pitch of uniquePitches) {
+    const pc = ((pitch - key) % 12 + 12) % 12;
+    if (intervals.includes(pc)) inScale++;
+    else passing++;
+  }
+  return { total: uniquePitches.size, inScale, passingTones: passing };
 }

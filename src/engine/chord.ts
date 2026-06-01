@@ -6,12 +6,12 @@ import { randPick, randInt } from './prng';
 const CHORD_MIN = 36;
 const CHORD_MAX = 60;
 
-export function generateChords(rng: () => number, dna: DNAProfile, genre: GenreProfile, key: number, scale: ScaleType): MidiEvent[] {
+export function generateChords(rng: () => number, dna: DNAProfile, genre: GenreProfile, key: number, scale: ScaleType, totalTicks = 64): MidiEvent[] {
   const scalePitches = buildScalePitches(key, scale, CHORD_MIN, CHORD_MAX);
   if (scalePitches.length === 0) return [];
 
   const targetChords = Math.round(genre.chordDensity * 4 * (1 - dna.rhythmGapBias * 0.5));
-  const grid = buildRhythmGrid(rng, dna, genre, Math.max(2, targetChords), false);
+  const grid = buildRhythmGrid(rng, dna, genre, Math.max(2, targetChords), false, totalTicks);
   const events: MidiEvent[] = [];
   const [velMin, velMax] = genre.velocityRange;
 

@@ -277,9 +277,34 @@ export default function App() {
         </div>
       </div>
       <div className="generate-section">
-        <button className={`btn-generate${generating ? ' generating' : ''}`} onClick={handleGenerate} disabled={generating}>
-          {generating ? 'GENERATING…' : '▶ GENERATE'}
-        </button>
+        <div className="gen-play-row">
+          <button className={`btn-generate${generating ? ' generating' : ''}`} onClick={handleGenerate} disabled={generating}>
+            {generating ? 'GENERATING…' : '▶ GENERATE'}
+          </button>
+          {pack && (
+            <button
+              className={`btn-play-inline${playing ? ' playing' : ''}`}
+              onClick={handlePlayStop}
+              disabled={audioLoading}
+              title={playing ? 'Stop' : 'Play preview'}
+            >
+              {audioLoading ? '⧗' : playing ? '■' : '▶'}
+            </button>
+          )}
+        </div>
+        {pack && (
+          <div className="voice-mutes">
+            {(['chords', 'melody', 'bass', 'drums'] as const).map(voice => (
+              <button
+                key={voice}
+                className={`btn-mute ${mutedVoices.has(voice) ? 'muted' : `active-${voice}`}`}
+                onClick={() => handleMuteToggle(voice)}
+              >
+                {voice.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       {scores && (
         <div className="section">
@@ -317,31 +342,6 @@ export default function App() {
               )}
             </div>
           )}
-        </div>
-      )}
-      {pack && (
-        <div className="section">
-          <div className="section-label">PREVIEW</div>
-          <div className="preview-controls">
-            <button
-              className={`btn-play${playing ? ' playing' : ''}`}
-              onClick={handlePlayStop}
-              disabled={audioLoading}
-            >
-              {audioLoading ? '⧗ LOADING AUDIO…' : playing ? '■ STOP PREVIEW' : '▶ PLAY PREVIEW'}
-            </button>
-            <div className="voice-mutes">
-              {(['chords', 'melody', 'bass', 'drums'] as const).map(voice => (
-                <button
-                  key={voice}
-                  className={`btn-mute ${mutedVoices.has(voice) ? 'muted' : `active-${voice}`}`}
-                  onClick={() => handleMuteToggle(voice)}
-                >
-                  {voice.toUpperCase()}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
       )}
       {pack && (

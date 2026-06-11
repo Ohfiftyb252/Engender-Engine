@@ -67,6 +67,7 @@ export interface EngineState {
   key: number;
   scale: ScaleType;
   bpm: number;
+  bars: number;
   mutationDepth: number;
   mutationPath: string[];
   mutationTree: MutationNode[];

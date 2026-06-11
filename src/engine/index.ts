@@ -21,9 +21,12 @@ export function runEngine(state: EngineState): GeneratedPack {
   const melodyRng = vs.melody != null ? mulberry32(vs.melody) : masterBranches.melody;
   const bassRng   = vs.bass   != null ? mulberry32(vs.bass)   : masterBranches.bass;
 
-  const rawChords = generateChords(chordsRng, dna, genre, state.key, state.scale);
-  const rawMelody = generateMelody(melodyRng, dna, genre, state.key, state.scale);
-  const rawBass   = generateBass(bassRng, dna, genre, state.key, state.scale, rawChords);
+  const bars = state.bars ?? 4;
+  const totalTicks = bars * 16;
+
+  const rawChords = generateChords(chordsRng, dna, genre, state.key, state.scale, totalTicks);
+  const rawMelody = generateMelody(melodyRng, dna, genre, state.key, state.scale, totalTicks);
+  const rawBass   = generateBass(bassRng, dna, genre, state.key, state.scale, rawChords, totalTicks, bars);
 
   const { chords, melody, bass } = applyPocketProtection(rawChords, rawMelody, rawBass);
 
@@ -41,7 +44,7 @@ export function generateFresh(overrides: Partial<EngineState> = {}): GeneratedPa
   const seed = Math.floor(Math.random() * 0xffffffff);
   const state: EngineState = {
     seed, genre: 'darkTrap', dna: 'ominous', key: 0, scale: 'harmonicMinor',
-    bpm: 140, mutationDepth: 0, mutationPath: [], mutationTree: [],
+    bpm: 140, bars: 4, mutationDepth: 0, mutationPath: [], mutationTree: [],
     activeNodeId: null, voiceSeeds: {}, ...overrides,
   };
   return runEngine(state);

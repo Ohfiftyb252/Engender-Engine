@@ -5,6 +5,7 @@ const MUTATION_SALT: Record<MutationTarget, number> = {
   melody: 0xaabbccdd,
   bass:   0x11223344,
   chords: 0x55667788,
+  drums:  0x99aabbcc,
 };
 
 export function deriveMutationSeed(masterSeed: number, target: MutationTarget, mutationDepth: number): number {

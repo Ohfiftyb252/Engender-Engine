@@ -1,8 +1,9 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { EnginePlayer, bounceToWav } from './audio/player';
-import type { EngineState, GeneratedPack, MutationTarget, Snapshot } from './types';
+import { EnginePlayer, bounceToWav, renderToWav, wavFilename } from './audio/player';
+import type { EngineState, GeneratedPack, MutationTarget, Snapshot, PackValidationResult } from './types';
 import { generateFresh, mutateVoice, recallFromSeed } from './engine/index';
 import { measureSimilarity } from './engine/cloneShield';
+import { validatePocketPack, repairWeakLanes } from './engine/validatePack';
 import { buildZip, downloadZip } from './export/zip';
 import { loadSnapshots, saveSnapshot, deleteSnapshot } from './storage/snapshots';
 import { NOTE_NAMES, validateScaleNotes } from './engine/scale';
@@ -32,6 +33,8 @@ export default function App() {
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [bouncing, setBouncing] = useState(false);
+  const [repairing, setRepairing] = useState(false);
+  const [validation, setValidation] = useState<PackValidationResult | null>(null);
   const [snapshots, setSnapshots] = useState<Snapshot[]>(loadSnapshots);
   const { toast, showToast } = useToast();
   const [genre, setGenre] = useState<EngineState['genre']>('darkTrap');
@@ -135,11 +138,13 @@ export default function App() {
             showToast('CLONE DETECTED — REGENERATING', 'error');
             const regen = generateFresh({ genre, dna, key, scale, bpm, bars });
             setSeedInput(regen.state.seed.toString(16).toUpperCase());
+            setValidation(validatePocketPack(regen));
             setPrevPack(newPack); setPack(regen); setGenerating(false); return;
           }
         }
         setSeedInput(newPack.state.seed.toString(16).toUpperCase());
         setPrevPack(pack); setPack(newPack);
+        setValidation(validatePocketPack(newPack));
       } catch (e) { showToast('ENGINE ERROR', 'error'); console.error(e); }
       setGenerating(false);
     }, 10);
@@ -149,16 +154,32 @@ export default function App() {
     if (!pack) return;
     const mutated = mutateVoice(pack, target);
     setPrevPack(pack); setPack(mutated);
+    setValidation(validatePocketPack(mutated));
     showToast(`${target.toUpperCase()} MUTATED ⟶ ${mutated.fingerprint}`);
   }, [pack, showToast]);
+
+  const handleRepair = useCallback(async () => {
+    if (!pack || repairing) return;
+    setRepairing(true);
+    try {
+      const repaired = repairWeakLanes(pack);
+      setPrevPack(pack); setPack(repaired);
+      const result = validatePocketPack(repaired);
+      setValidation(result);
+      showToast(result.valid ? `REPAIRED ⟶ ${repaired.fingerprint}` : 'REPAIR PARTIAL — STILL WEAK', result.valid ? 'success' : 'error');
+    } catch (e) { showToast('REPAIR FAILED', 'error'); console.error(e); }
+    setRepairing(false);
+  }, [pack, repairing, showToast]);
 
   const handleExport = useCallback(async () => {
     if (!pack || exporting) return;
     setExporting(true);
     try {
-      const blob = await buildZip(pack, loopMode);
+      const previewWavBuf = await renderToWav(pack, 1);
+      const previewWav = new Uint8Array(previewWavBuf);
+      const blob = await buildZip(pack, loopMode, previewWav);
       downloadZip(blob, pack.fingerprint, pack.state.bpm, pack.state.bars ?? 4);
-      showToast(`EXPORTED EngenderEngine_${pack.fingerprint}_${pack.state.bpm}BPM.zip`);
+      showToast(`POCKET PACK READY ⟶ ${pack.fingerprint}`);
     } catch (e) { showToast('EXPORT FAILED', 'error'); console.error(e); }
     setExporting(false);
   }, [pack, exporting, loopMode, showToast]);
@@ -180,7 +201,9 @@ export default function App() {
   }, [pack, showToast]);
 
   const handleRecallSnapshot = useCallback((snap: Snapshot) => {
-    setPrevPack(pack); setPack(recallFromSeed(snap.state));
+    const recalled = recallFromSeed(snap.state);
+    setPrevPack(pack); setPack(recalled);
+    setValidation(validatePocketPack(recalled));
     setGenre(snap.state.genre); setDna(snap.state.dna); setKey(snap.state.key);
     setScale(snap.state.scale); setBpm(snap.state.bpm); setBars(snap.state.bars ?? 4);
     setSeedInput(snap.state.seed.toString(16).toUpperCase());
@@ -279,6 +302,21 @@ export default function App() {
               </span>
             </div>
           )}
+          {validation && (
+            <div className={`pack-validation ${validation.valid ? 'valid' : 'invalid'}`}>
+              <span className="pack-val-label">{validation.valid ? '✓ VALID PACK' : '⚠ NEEDS REPAIR'}</span>
+              {!validation.valid && validation.issues.length > 0 && (
+                <ul className="pack-val-issues">
+                  {validation.issues.map((issue, i) => <li key={i}>{issue}</li>)}
+                </ul>
+              )}
+              {!validation.valid && (
+                <button className="btn-repair" onClick={handleRepair} disabled={repairing}>
+                  {repairing ? '⧗ REPAIRING…' : '⟳ REPAIR WEAK LANES'}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
       {pack && (
@@ -293,7 +331,7 @@ export default function App() {
               {audioLoading ? '⧗ LOADING AUDIO…' : playing ? '■ STOP PREVIEW' : '▶ PLAY PREVIEW'}
             </button>
             <div className="voice-mutes">
-              {(['chords', 'melody', 'bass'] as const).map(voice => (
+              {(['chords', 'melody', 'bass', 'drums'] as const).map(voice => (
                 <button
                   key={voice}
                   className={`btn-mute ${mutedVoices.has(voice) ? 'muted' : `active-${voice}`}`}
@@ -310,7 +348,7 @@ export default function App() {
         <div className="section">
           <div className="section-label">MUTATION ENGINE</div>
           <div className="mutation-btns">
-            {(['melody', 'chords', 'bass'] as const).map(t => (
+            {(['melody', 'chords', 'bass', 'drums'] as const).map(t => (
               <button key={t} className={`btn-mutate ${t}`} onClick={() => handleMutate(t)}>MUTATE {t.toUpperCase()}</button>
             ))}
           </div>
@@ -369,8 +407,8 @@ export default function App() {
                 onClick={handleExport}
                 disabled={exporting || isStale}
               >
-                <span>{exporting ? '⧗ BUILDING ZIP…' : '⤓ EXPORT MIDI PACK'}</span>
-                <span className="export-sub">3 MIDI + MANIFEST</span>
+                <span>{exporting ? '⧗ BUILDING ZIP…' : '⤓ DOWNLOAD POCKET PACK'}</span>
+                <span className="export-sub">4 MIDI + WAV + MANIFEST</span>
               </button>
               <button
                 className={`btn-bounce${bouncing ? ' bouncing' : ''}`}
@@ -378,7 +416,7 @@ export default function App() {
                 disabled={bouncing || isStale}
               >
                 <span>{bouncing ? '⧗ BOUNCING…' : '◎ BOUNCE TO WAV'}</span>
-                <span className="export-sub">{bars * loopMode} BAR AUDIO RENDER</span>
+                <span className="export-sub">{wavFilename(pack, loopMode)}</span>
               </button>
             </div>
           </>

@@ -31,5 +31,6 @@ export function createSeedBranches(masterSeed: number) {
     melody:   mulberry32(masterSeed ^ 0x9c0d1e2f),
     bass:     mulberry32(masterSeed ^ 0x3a4b5c6d),
     humanize: mulberry32(masterSeed ^ 0x7e8f9a0b),
+    drums:    mulberry32(masterSeed ^ 0xc1d2e3f4),
   };
 }

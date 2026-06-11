@@ -123,4 +123,20 @@ select:focus, input:focus { border-color: var(--border-bright); }
 .btn-mute.active-chords { border-color: var(--accent2); color: var(--accent2); }
 .btn-mute.active-melody { border-color: var(--accent3); color: var(--accent3); }
 .btn-mute.active-bass   { border-color: var(--accent);  color: var(--accent); }
+.btn-mute.active-drums  { border-color: #a855f7; color: #a855f7; }
 .btn-mute.muted { opacity: 0.25; border-color: var(--border); color: var(--muted); }
+.voice-mutes { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+.pack-validation { margin-top: 12px; padding: 10px 12px; border-radius: 4px; font-size: 9px; letter-spacing: 0.1em; }
+.pack-validation.valid { background: rgba(0, 255, 136, 0.05); border: 1px solid var(--accent3); }
+.pack-validation.invalid { background: rgba(255, 45, 45, 0.05); border: 1px solid var(--accent); }
+.pack-val-label { display: block; font-weight: 700; font-size: 10px; letter-spacing: 0.15em; margin-bottom: 6px; }
+.pack-validation.valid .pack-val-label { color: var(--accent3); }
+.pack-validation.invalid .pack-val-label { color: var(--accent); }
+.pack-val-issues { margin: 0 0 8px 0; padding: 0 0 0 14px; color: var(--muted); line-height: 1.6; }
+.pack-val-issues li { margin-bottom: 2px; }
+.btn-repair { width: 100%; height: 36px; background: transparent; border: 1px solid var(--accent); color: var(--accent); font-family: var(--font); font-size: 9px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; border-radius: 4px; cursor: pointer; margin-top: 4px; }
+.btn-repair:disabled { opacity: 0.4; cursor: wait; }
+.btn-repair:not(:disabled):hover { background: rgba(255, 45, 45, 0.08); }
+
+.btn-mutate.drums { border-color: #a855f7; color: #a855f7; }

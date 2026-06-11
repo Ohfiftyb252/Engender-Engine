@@ -16,7 +16,9 @@ export type ScaleType =
   | 'phrygianDominant'
   | 'aeolian';
 
-export type MutationTarget = 'melody' | 'bass' | 'chords';
+export type MutationTarget = 'melody' | 'bass' | 'chords' | 'drums';
+
+export type DrumLane = 'kick' | 'snare' | 'clap' | 'hat' | 'openHat';
 
 export interface MidiEvent {
   /** Position in 16th-note ticks (0 = bar 1 beat 1). 4 bars = 64 ticks. */
@@ -25,6 +27,26 @@ export interface MidiEvent {
   /** Duration in 16th-note ticks */
   duration: number;
   velocity: number;
+}
+
+export interface DrumEvent {
+  /** Position in 16th-note ticks. May be fractional (e.g. 14.5 = 32nd note offset). */
+  position: number;
+  lane: DrumLane;
+  /** GM drum pitch (36=kick, 38=snare, 39=clap, 42=hat, 46=openHat) */
+  pitch: number;
+  velocity: number;
+}
+
+export interface DrumPattern {
+  events: DrumEvent[];
+}
+
+export interface PackValidationResult {
+  valid: boolean;
+  issues: string[];
+  /** Lanes that need repair */
+  weakLanes: Array<'chords' | 'bass' | 'melody' | 'drums'>;
 }
 
 export interface DNAProfile {
@@ -83,6 +105,7 @@ export interface GeneratedPack {
   chords: MidiEvent[];
   melody: MidiEvent[];
   bass: MidiEvent[];
+  drums: DrumPattern;
   fingerprint: string;
   scores: TelemetryScores;
   state: EngineState;

@@ -45,11 +45,12 @@ export function runEngine(state: EngineState): GeneratedPack {
 }
 
 export function generateFresh(overrides: Partial<EngineState> = {}): GeneratedPack {
-  const seed = Math.floor(Math.random() * 0xffffffff);
+  const { seed: seedOverride, ...rest } = overrides;
+  const seed = seedOverride ?? Math.floor(Math.random() * 0xffffffff);
   const state: EngineState = {
     seed, genre: 'darkTrap', dna: 'ominous', key: 0, scale: 'harmonicMinor',
     bpm: 140, bars: 4, mutationDepth: 0, mutationPath: [], mutationTree: [],
-    activeNodeId: null, voiceSeeds: {}, ...overrides,
+    activeNodeId: null, voiceSeeds: {}, ...rest,
   };
   return runEngine(state);
 }

@@ -7,6 +7,8 @@ import { validatePocketPack, repairWeakLanes } from './engine/validatePack';
 import { buildZip, downloadZip } from './export/zip';
 import { loadSnapshots, saveSnapshot, deleteSnapshot } from './storage/snapshots';
 import { NOTE_NAMES, validateScaleNotes } from './engine/scale';
+import { MutantStackLab } from './components/MutantStackLab';
+import type { CropRange } from './components/MutantStackLab';
 
 const GENRES = ['darkTrap', 'ukDrill', 'phonk', 'jerseyClub'] as const;
 const DNA_LIST = ['pressure', 'hypnotic', 'chaotic', 'ominous', 'paranoid', 'unstable', 'cinematic', 'emptyRoom'] as const;
@@ -49,6 +51,7 @@ export default function App() {
   const [audioLoading, setAudioLoading] = useState(false);
   const [mutedVoices, setMutedVoices] = useState<Set<MutationTarget>>(new Set());
   const [isStale, setIsStale] = useState(false);
+  const [crop, setCrop] = useState<CropRange>({ start: 0, end: 4 });
   const playerRef = useRef<EnginePlayer>(new EnginePlayer());
   const tapTimesRef = useRef<number[]>([]);
 
@@ -145,6 +148,7 @@ export default function App() {
         setSeedInput(newPack.state.seed.toString(16).toUpperCase());
         setPrevPack(pack); setPack(newPack);
         setValidation(validatePocketPack(newPack));
+        setCrop({ start: 0, end: newPack.state.bars ?? 4 });
       } catch (e) { showToast('ENGINE ERROR', 'error'); console.error(e); }
       setGenerating(false);
     }, 10);
@@ -212,6 +216,11 @@ export default function App() {
 
   const handleDeleteSnapshot = useCallback((id: string, e: React.MouseEvent) => {
     e.stopPropagation(); deleteSnapshot(id); setSnapshots(loadSnapshots());
+  }, []);
+
+  const handleMslPatch = useCallback((next: GeneratedPack) => {
+    setPack(next);
+    setValidation(validatePocketPack(next));
   }, []);
 
   const scores = pack?.scores;
@@ -360,6 +369,15 @@ export default function App() {
             </div>
           )}
         </div>
+      )}
+      {pack && (
+        <MutantStackLab
+          pack={pack}
+          crop={crop}
+          onCropChange={setCrop}
+          onPackPatch={handleMslPatch}
+          showToast={showToast}
+        />
       )}
       <div className="section">
         <div className="section-label">SNAPSHOTS</div>

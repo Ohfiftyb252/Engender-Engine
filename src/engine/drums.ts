@@ -113,6 +113,23 @@ const HAT_RUN_32: DrumSlot[] = [
   { pos: 15.5, lane: 'hat', vel: 64, prob: 0.78 },
 ];
 
+// 8th-note triplet hat roll — 3 per beat, 12 total across 4 beats
+// Triplet grid: beat * 4 + [0, 4/3, 8/3] = [0, 1.33, 2.67, 4, 5.33, 6.67, ...]
+const T = 4 / 3; // ticks per 8th-note triplet subdivision
+const TRIPLET_BEATS = [0, 1, 2, 3] as const;
+const HAT_TRIPLETS: DrumSlot[] = TRIPLET_BEATS.flatMap(beat => [
+  { pos: beat * 4,         lane: 'hat', vel: 82, prob: 0.88 },
+  { pos: beat * 4 + T,     lane: 'hat', vel: 58, prob: 0.82 },
+  { pos: beat * 4 + T * 2, lane: 'hat', vel: 70, prob: 0.78 },
+]);
+
+// Triplet kick roll — 3 quick kicks on beat 4 (bars 12, 13.33, 14.67)
+const KICK_TRIPLETS: DrumSlot[] = [
+  { pos: 12,         lane: 'kick', vel: 98, prob: 0.85 },
+  { pos: 12 + T,     lane: 'kick', vel: 72, prob: 0.75 },
+  { pos: 12 + T * 2, lane: 'kick', vel: 84, prob: 0.80 },
+];
+
 // Transition fill on the last bar of a section
 const SECTION_FILL: DrumSlot[] = [
   { pos: 8,    lane: 'snare', vel: 100, prob: 0.90 },
@@ -204,6 +221,48 @@ export function generateDrums(rng: () => number, genre: Genre, bars: number): Dr
         if (rng() < slot.prob)
           events.push({ position: absPos, lane: slot.lane, pitch: DRUM_GM[slot.lane],
             velocity: Math.max(30, Math.min(127, Math.round(slot.vel + (rng() - 0.5) * 16))) });
+      }
+    }
+
+    // ── TRIPLET HITS ─────────────────────────────────────────────────────────
+    // Per-genre triplet probability — darkTrap/phonk love triplets, ukDrill less so
+    const tripletBase =
+      genre === 'darkTrap'   ? 0.72 :
+      genre === 'phonk'      ? 0.65 :
+      genre === 'jerseyClub' ? 0.55 :
+                               0.35; // ukDrill — sparser triplets
+
+    // Section scaling: cold=rare, main=moderate, final=heavy
+    const tripletChance = tripletBase *
+      (section === 0 ? 0.30 : section === 1 ? 0.70 : section === 2 ? 0.50 : 1.0);
+
+    if (rng() < tripletChance) {
+      // Choose which beat(s) to tripletize — 1 to 3 beats per bar
+      const beatCount = rng() < 0.5 ? 1 : rng() < 0.7 ? 2 : 3;
+      const beats = [0, 1, 2, 3].sort(() => rng() - 0.5).slice(0, beatCount);
+
+      for (const beat of beats) {
+        const beatSlots = HAT_TRIPLETS.filter(s => s.pos >= beat * 4 && s.pos < beat * 4 + 4);
+        for (const slot of beatSlots) {
+          const absPos = slot.pos + offset;
+          if (absPos >= totalTicks) continue;
+          if (rng() < slot.prob) {
+            const velVar = Math.round((rng() - 0.5) * 20);
+            events.push({ position: absPos, lane: 'hat', pitch: DRUM_GM.hat,
+              velocity: Math.max(28, Math.min(110, Math.round(slot.vel * velMult) + velVar)) });
+          }
+        }
+      }
+    }
+
+    // Triplet kick roll — fire on final bar of sections 1 and 3 for drama
+    if ((section === 1 || section === 3) && isTransitionBar && rng() < 0.65) {
+      for (const slot of KICK_TRIPLETS) {
+        const absPos = slot.pos + offset;
+        if (absPos >= totalTicks) continue;
+        if (rng() < slot.prob)
+          events.push({ position: absPos, lane: 'kick', pitch: DRUM_GM.kick,
+            velocity: Math.max(40, Math.min(110, Math.round(slot.vel + (rng() - 0.5) * 18))) });
       }
     }
 

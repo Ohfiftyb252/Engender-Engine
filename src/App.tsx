@@ -273,7 +273,9 @@ export default function App() {
             <label className="control-label">BARS</label>
             <select value={bars} onChange={e => setBars(Number(e.target.value))}>
               <option value={4}>4 BARS</option>
-              <option value={5}>5 BARS (EXP)</option>
+              <option value={8}>8 BARS</option>
+              <option value={16}>16 BARS</option>
+              <option value={32}>32 BARS</option>
             </select>
           </div>
           <div className="control-group full-width">

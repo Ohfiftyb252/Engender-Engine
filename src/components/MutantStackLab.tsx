@@ -40,7 +40,9 @@ function StepGrid({ events, color, totalTicks, zoom, viewStart }: {
   zoom: number;
   viewStart: number;
 }) {
-  const visRange = totalTicks / zoom;
+  // zoom < 1 = zoom OUT (see more bars); zoom > 1 = zoom IN (see fewer bars in more detail)
+  const rawRange = totalTicks / zoom;
+  const visRange = Math.min(rawRange, totalTicks - viewStart);
   const ticksPerCell = visRange / GRID_COLS;
   const viewEnd = viewStart + visRange;
 
@@ -53,12 +55,22 @@ function StepGrid({ events, color, totalTicks, zoom, viewStart }: {
     }
   }
 
+  // 8-bar section boundaries: mark the cell where each 8-bar block starts
+  const section8Ticks = 8 * 16; // 128 ticks
+  const sectionBoundaryCols = new Set<number>();
+  for (let t = section8Ticks; t < totalTicks; t += section8Ticks) {
+    if (t >= viewStart && t < viewEnd) {
+      const col = Math.floor((t - viewStart) / ticksPerCell);
+      if (col > 0 && col < GRID_COLS) sectionBoundaryCols.add(col);
+    }
+  }
+
   return (
     <div className="msl-step-grid">
       {cells.map((v, i) => (
         <div
           key={i}
-          className="msl-cell"
+          className={`msl-cell${sectionBoundaryCols.has(i) ? ' section-mark' : ''}`}
           style={v > 0 ? { background: color, opacity: 0.35 + v * 0.65 } : undefined}
         />
       ))}
@@ -77,7 +89,7 @@ interface Props {
 }
 
 export function MutantStackLab({ pack, crop, onCropChange, onPackPatch, showToast }: Props) {
-  const [zoom, setZoom] = useState<1 | 2 | 4>(1);
+  const [zoom, setZoom] = useState<0.25 | 0.5 | 1 | 2 | 4>(1);
   const [copySource, setCopySource] = useState<PadId | null>(null);
 
   const bars = pack.state.bars ?? 4;
@@ -123,11 +135,14 @@ export function MutantStackLab({ pack, crop, onCropChange, onPackPatch, showToas
         <div className="section-label">MUTANT STACK LAB</div>
         <div className="msl-zoom-group">
           <span className="msl-zoom-label">ZOOM</span>
-          {([1, 2, 4] as const).map(z => (
-            <button key={z} className={`msl-zoom-btn${zoom === z ? ' active' : ''}`} onClick={() => setZoom(z)}>
-              {z}×
-            </button>
-          ))}
+          {([0.25, 0.5, 1, 2, 4] as const).map(z => {
+            const label = z === 0.25 ? '¼' : z === 0.5 ? '½' : `${z}×`;
+            return (
+              <button key={z} className={`msl-zoom-btn${zoom === z ? ' active' : ''}`} onClick={() => setZoom(z)}>
+                {label}
+              </button>
+            );
+          })}
         </div>
       </div>
 

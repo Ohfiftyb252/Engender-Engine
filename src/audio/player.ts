@@ -58,70 +58,82 @@ export class EnginePlayer {
 
     const s16 = 60 / pack.state.bpm / 4;
 
-    // ─── 808 BASS ────────────────────────────────────────────────────────────
+    // ─── EERIE 808 BASS ──────────────────────────────────────────────────────
+    // Slow pitch slide + soft saturation = ominous sub movement
     this.bassSynth = new Tone.MonoSynth({
-      portamento: 0.08,
+      portamento: 0.14,           // longer glide for haunting pitch slides
       oscillator: { type: 'sine' },
-      envelope: { attack: 0.001, decay: 3.0, sustain: 0.0, release: 0.8 },
+      envelope: { attack: 0.012, decay: 4.0, sustain: 0.0, release: 1.2 },
       volume: 2,
     });
-    const bassDist = new Tone.Distortion({ distortion: 0.25, wet: 0.35 });
-    const bassLpf  = new Tone.Filter({ frequency: 240, type: 'lowpass', rolloff: -24 });
-    this.bassSynth.chain(bassDist, bassLpf, Tone.Destination);
-    this.fx.push(bassDist, bassLpf);
+    const bassDist   = new Tone.Distortion({ distortion: 0.18, wet: 0.28 });
+    const bassChorus = new Tone.Chorus({ frequency: 0.4, delayTime: 3.5, depth: 0.5, wet: 0.3 });
+    const bassLpf    = new Tone.Filter({ frequency: 200, type: 'lowpass', rolloff: -24 });
+    this.bassSynth.chain(bassDist, bassChorus, bassLpf, Tone.Destination);
+    this.fx.push(bassDist, bassChorus, bassLpf);
 
-    // ─── DARK CHORD PAD ──────────────────────────────────────────────────────
+    // ─── EERIE CHORD PAD ─────────────────────────────────────────────────────
+    // Detuned triangle for hollow, drifting, ghostly pad sound
     this.chordsSynth = new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: 'sawtooth' },
-      envelope: { attack: 0.15, decay: 0.4, sustain: 0.6, release: 3.5 },
-      volume: -12,
+      oscillator: { type: 'triangle' },
+      envelope: { attack: 0.4, decay: 0.8, sustain: 0.55, release: 5.0 },
+      volume: -14,
     });
-    const chordsLpf  = new Tone.Filter({ frequency: 1800, type: 'lowpass', rolloff: -12 });
-    const chordsVerb = new Tone.Reverb({ decay: 5.0, wet: 0.55 });
+    const chordsChorus = new Tone.Chorus({ frequency: 0.15, delayTime: 6, depth: 0.65, wet: 0.6 });
+    const chordsLpf    = new Tone.Filter({ frequency: 1200, type: 'lowpass', rolloff: -24 });
+    const chordsVerb   = new Tone.Reverb({ decay: 8.0, wet: 0.70 });  // vast cathedral reverb
     await chordsVerb.generate();
-    this.chordsSynth.chain(chordsLpf, chordsVerb, Tone.Destination);
-    this.fx.push(chordsLpf, chordsVerb);
+    this.chordsSynth.chain(chordsChorus, chordsLpf, chordsVerb, Tone.Destination);
+    this.fx.push(chordsChorus, chordsLpf, chordsVerb);
 
-    // ─── DARK MELODY LEAD ────────────────────────────────────────────────────
+    // ─── EERIE MELODY LEAD ───────────────────────────────────────────────────
+    // Triangle with slow vibrato + long echoing delay = haunting, floating
     this.melodySynth = new Tone.Synth({
       oscillator: { type: 'triangle' },
-      envelope: { attack: 0.04, decay: 0.15, sustain: 0.5, release: 0.6 },
-      volume: -8,
+      envelope: { attack: 0.08, decay: 0.35, sustain: 0.45, release: 1.8 },
+      volume: -10,
     });
-    const melodyDelay = new Tone.FeedbackDelay({ delayTime: '8n', feedback: 0.2, wet: 0.2 });
-    const melodyVerb  = new Tone.Reverb({ decay: 2.5, wet: 0.35 });
+    const melodyVib   = new Tone.Vibrato({ frequency: 4.5, depth: 0.08, wet: 0.55 });
+    const melodyDelay = new Tone.FeedbackDelay({ delayTime: '8n.', feedback: 0.38, wet: 0.42 }); // dotted-8th echo
+    const melodyVerb  = new Tone.Reverb({ decay: 5.0, wet: 0.50 });
     await melodyVerb.generate();
-    this.melodySynth.chain(melodyDelay, melodyVerb, Tone.Destination);
-    this.fx.push(melodyDelay, melodyVerb);
+    this.melodySynth.chain(melodyVib, melodyDelay, melodyVerb, Tone.Destination);
+    this.fx.push(melodyVib, melodyDelay, melodyVerb);
 
     // ─── DRUMS ───────────────────────────────────────────────────────────────
+    // Kick: deep sub thud with limiter
     this.kickSynth = new Tone.MembraneSynth({
-      pitchDecay: 0.08,
-      octaves: 5,
-      envelope: { attack: 0.001, decay: 0.38, sustain: 0, release: 0.12 },
+      pitchDecay: 0.12,           // longer pitch drop for darker feel
+      octaves: 6,
+      envelope: { attack: 0.001, decay: 0.45, sustain: 0, release: 0.15 },
       volume: 1,
     });
     const kickLimiter = new Tone.Limiter(-2);
     this.kickSynth.chain(kickLimiter, Tone.Destination);
     this.fx.push(kickLimiter);
 
+    // Snare: filtered, shorter, ghostly — not a bright crack
     this.snareSynth = new Tone.NoiseSynth({
-      noise: { type: 'white' },
-      envelope: { attack: 0.001, decay: 0.14, sustain: 0, release: 0.04 },
-      volume: -5,
+      noise: { type: 'pink' },    // pink = warmer, less piercing than white
+      envelope: { attack: 0.001, decay: 0.11, sustain: 0, release: 0.03 },
+      volume: -7,
     });
-    const snareHpf = new Tone.Filter({ frequency: 2200, type: 'highpass' });
-    this.snareSynth.chain(snareHpf, Tone.Destination);
-    this.fx.push(snareHpf);
+    const snareHpf     = new Tone.Filter({ frequency: 1800, type: 'highpass' });
+    const snareLpf     = new Tone.Filter({ frequency: 6000, type: 'lowpass' }); // band-pass the crack
+    const snareLimiter = new Tone.Limiter(-4);
+    this.snareSynth.chain(snareHpf, snareLpf, snareLimiter, Tone.Destination);
+    this.fx.push(snareHpf, snareLpf, snareLimiter);
 
+    // Hats: filtered, controlled, with limiter on harsh highs
     this.hatSynth = new Tone.NoiseSynth({
-      noise: { type: 'white' },
-      envelope: { attack: 0.001, decay: 0.055, sustain: 0, release: 0.01 },
-      volume: -12,
+      noise: { type: 'pink' },    // pink noise = softer high end
+      envelope: { attack: 0.001, decay: 0.045, sustain: 0, release: 0.008 },
+      volume: -16,
     });
-    const hatHpf = new Tone.Filter({ frequency: 8000, type: 'highpass' });
-    this.hatSynth.chain(hatHpf, Tone.Destination);
-    this.fx.push(hatHpf);
+    const hatBpf     = new Tone.Filter({ frequency: 9000, type: 'bandpass', Q: 0.8 }); // narrow band = metallic not harsh
+    const hatLimiter = new Tone.Limiter(-8);
+    this.hatSynth.chain(hatBpf, hatLimiter, Tone.Destination);
+    this.fx.push(hatBpf, hatLimiter);
 
     // ─── SCHEDULE PARTS ──────────────────────────────────────────────────────
     const makePart = (

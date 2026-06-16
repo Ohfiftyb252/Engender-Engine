@@ -1,14 +1,13 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { EnginePlayer, bounceToWav, renderToWav, wavFilename } from './audio/player';
-import type { EngineState, GeneratedPack, MutationTarget, Snapshot, PackValidationResult } from './types';
+import type { EngineState, GeneratedPack, MutationTarget, Snapshot, PackValidationResult, BeatPattern, PadId } from './types';
 import { generateFresh, mutateVoice, recallFromSeed } from './engine/index';
 import { measureSimilarity } from './engine/cloneShield';
 import { validatePocketPack, repairWeakLanes } from './engine/validatePack';
 import { buildZip, downloadZip } from './export/zip';
 import { loadSnapshots, saveSnapshot, deleteSnapshot } from './storage/snapshots';
 import { NOTE_NAMES, validateScaleNotes } from './engine/scale';
-import { MutantStackLab } from './components/MutantStackLab';
-import type { CropRange } from './components/MutantStackLab';
+import { BeatMaker, packToBeatPattern, emptyPattern } from './components/BeatMaker';
 
 const GENRES = ['darkTrap', 'ukDrill', 'phonk', 'jerseyClub'] as const;
 const DNA_LIST = ['pressure', 'hypnotic', 'chaotic', 'ominous', 'paranoid', 'unstable', 'cinematic', 'emptyRoom'] as const;
@@ -51,7 +50,9 @@ export default function App() {
   const [audioLoading, setAudioLoading] = useState(false);
   const [mutedVoices, setMutedVoices] = useState<Set<MutationTarget>>(new Set());
   const [isStale, setIsStale] = useState(false);
-  const [crop, setCrop] = useState<CropRange>({ start: 0, end: 4 });
+  const [beatPattern, setBeatPattern] = useState<BeatPattern>(emptyPattern());
+  const [currentStep, setCurrentStep] = useState(-1);
+  const [swing, setSwing] = useState(0);
   const playerRef = useRef<EnginePlayer>(new EnginePlayer());
   const tapTimesRef = useRef<number[]>([]);
 
@@ -68,6 +69,12 @@ export default function App() {
   useEffect(() => {
     const player = playerRef.current;
     return () => { player.dispose(); };
+  }, []);
+
+  // Wire step callback
+  useEffect(() => {
+    playerRef.current.onStep = (step) => setCurrentStep(step);
+    return () => { playerRef.current.onStep = null; };
   }, []);
 
   // Stale detection — compares live UI params against the canonical generated state
@@ -94,12 +101,14 @@ export default function App() {
     if (playing) {
       player.stop();
       setPlaying(false);
+      setCurrentStep(-1);
     } else {
       if (!pack) return;
       setAudioLoading(true);
       setMutedVoices(new Set());
       try {
         await player.load(pack);
+        await player.loadBeatPattern(beatPattern, pack.state.bpm, pack.state.bars ?? 4, swing);
         player.play();
         setPlaying(true);
       } catch (e) {
@@ -108,7 +117,7 @@ export default function App() {
       }
       setAudioLoading(false);
     }
-  }, [playing, pack, showToast]);
+  }, [playing, pack, beatPattern, swing, showToast]);
 
   const handleMuteToggle = useCallback((voice: MutationTarget) => {
     playerRef.current.toggleMute(voice);
@@ -142,13 +151,14 @@ export default function App() {
             const regen = generateFresh({ genre, dna, key, scale, bpm, bars });
             setSeedInput(regen.state.seed.toString(16).toUpperCase());
             setValidation(validatePocketPack(regen));
+            setBeatPattern(packToBeatPattern(regen));
             setPrevPack(newPack); setPack(regen); setGenerating(false); return;
           }
         }
         setSeedInput(newPack.state.seed.toString(16).toUpperCase());
         setPrevPack(pack); setPack(newPack);
         setValidation(validatePocketPack(newPack));
-        setCrop({ start: 0, end: newPack.state.bars ?? 4 });
+        setBeatPattern(packToBeatPattern(newPack));
       } catch (e) { showToast('ENGINE ERROR', 'error'); console.error(e); }
       setGenerating(false);
     }, 10);
@@ -218,10 +228,20 @@ export default function App() {
     e.stopPropagation(); deleteSnapshot(id); setSnapshots(loadSnapshots());
   }, []);
 
-  const handleMslPatch = useCallback((next: GeneratedPack) => {
-    setPack(next);
-    setValidation(validatePocketPack(next));
-  }, []);
+  const handlePadTrigger = useCallback(async (padId: PadId, velocity: number, pitch: number) => {
+    if (!playerRef.current.initialized) {
+      if (!pack) return;
+      await playerRef.current.load(pack);
+    }
+    playerRef.current.triggerPad(padId, velocity, pitch);
+  }, [pack]);
+
+  const handleSwingChange = useCallback(async (v: number) => {
+    setSwing(v);
+    if (playing && pack) {
+      await playerRef.current.loadBeatPattern(beatPattern, pack.state.bpm, pack.state.bars ?? 4, v);
+    }
+  }, [playing, pack, beatPattern]);
 
   const scores = pack?.scores;
   const fingerprint = pack?.fingerprint ?? '------';
@@ -372,15 +392,15 @@ export default function App() {
           )}
         </div>
       )}
-      {pack && (
-        <MutantStackLab
-          pack={pack}
-          crop={crop}
-          onCropChange={setCrop}
-          onPackPatch={handleMslPatch}
-          showToast={showToast}
-        />
-      )}
+      <BeatMaker
+        pack={pack}
+        playing={playing}
+        currentStep={currentStep}
+        swing={swing}
+        onSwingChange={handleSwingChange}
+        onPatternChange={setBeatPattern}
+        onPadTrigger={handlePadTrigger}
+      />
       <div className="section">
         <div className="section-label">SNAPSHOTS</div>
         <div className="snapshot-actions">

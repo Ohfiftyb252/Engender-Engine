@@ -1,5 +1,5 @@
 import * as Tone from 'tone';
-import type { DrumLane, GeneratedPack, MidiEvent, MutationTarget } from '../types';
+import type { DrumLane, GeneratedPack, MidiEvent, MutationTarget, Step, BeatPattern, PadId } from '../types';
 import { mulberry32 } from '../engine/prng';
 
 interface PartEvent {
@@ -41,8 +41,13 @@ export class EnginePlayer {
   private fx: Array<{ dispose(): void }> = [];
   private mutedVoices = new Set<MutationTarget>();
   private _playing = false;
+  private stepSeq: { dispose(): void } | null = null;
+
+  public onStep: ((step: number) => void) | null = null;
 
   get playing(): boolean { return this._playing; }
+
+  get initialized(): boolean { return this.kickSynth !== null; }
 
   async load(pack: GeneratedPack): Promise<void> {
     this.dispose();
@@ -223,6 +228,7 @@ export class EnginePlayer {
 
   dispose(): void {
     this.stop();
+    if (this.stepSeq) { try { this.stepSeq.dispose(); } catch { /* ok */ } this.stepSeq = null; }
     this.parts.forEach(p => { try { p.dispose(); } catch { /* ok */ } });
     this.parts = [];
     [this.chordsSynth, this.melodySynth, this.bassSynth,
@@ -234,6 +240,68 @@ export class EnginePlayer {
     this.chordsSynth = null; this.melodySynth = null; this.bassSynth = null;
     this.kickSynth = null; this.snareSynth = null; this.hatSynth = null;
     this.mutedVoices.clear();
+  }
+
+  public triggerPad(padId: PadId, velocity: number, pitch: number, time?: number): void {
+    const vel = Math.max(0.01, Math.min(1, velocity / 127));
+    const t = time ?? Tone.now();
+    switch (padId) {
+      case 'kick':
+        this.kickSynth?.triggerAttackRelease('C1', '8n', t, vel);
+        break;
+      case 'snare':
+      case 'clap':
+        this.snareSynth?.triggerAttackRelease('16n', t, vel);
+        break;
+      case 'hat':
+        this.hatSynth?.triggerAttackRelease('32n', t, vel);
+        break;
+      case 'openHat':
+        this.hatSynth?.triggerAttackRelease('16n', t, vel * 0.85);
+        break;
+      case 'bass':
+        this.bassSynth?.triggerAttackRelease(Tone.Frequency(pitch, 'midi').toNote(), '8n', t, vel);
+        break;
+      case 'melody':
+        this.melodySynth?.triggerAttackRelease(Tone.Frequency(pitch, 'midi').toNote(), '16n', t, vel);
+        break;
+      case 'chords':
+        this.chordsSynth?.triggerAttackRelease(Tone.Frequency(pitch, 'midi').toNote(), '4n', t, vel);
+        break;
+    }
+  }
+
+  public async loadBeatPattern(pattern: BeatPattern, bpm: number, bars: number, swing: number): Promise<void> {
+    // Dispose old step seq
+    if (this.stepSeq) { try { this.stepSeq.dispose(); } catch { /* ok */ } this.stepSeq = null; }
+    // Clear Tone.Part-based parts
+    this.parts.forEach(p => { try { p.dispose(); } catch { /* ok */ } });
+    this.parts = [];
+
+    await Tone.start();
+
+    Tone.Transport.bpm.value = bpm;
+    Tone.Transport.loop = true;
+    Tone.Transport.loopStart = 0;
+    Tone.Transport.loopEnd = `${bars}m`;
+    Tone.Transport.swing = swing;
+    (Tone.Transport as unknown as Record<string, unknown>).swingSubdivision = '16n';
+
+    const steps = [...Array(16).keys()];
+    const seq = new Tone.Sequence((time: number, step: unknown) => {
+      const s = step as number;
+      this.onStep?.(s);
+      const entries = Object.entries(pattern) as [string, Step[]][];
+      for (const [padId, padSteps] of entries) {
+        const st = padSteps[s];
+        if (!st?.active) continue;
+        if (this.mutedVoices.has(padId as MutationTarget)) continue;
+        this.triggerPad(padId as PadId, st.velocity, st.pitch, time);
+      }
+    }, steps, '16n');
+    seq.loop = true;
+    seq.start(0);
+    this.stepSeq = seq;
   }
 }
 

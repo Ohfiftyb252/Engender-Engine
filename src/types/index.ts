@@ -119,3 +119,13 @@ export interface Snapshot {
   scores: TelemetryScores;
   fingerprint: string;
 }
+
+export interface Step {
+  active: boolean;
+  velocity: number; // 0-127
+  pitch: number;    // MIDI pitch
+}
+
+export type PadId = 'kick' | 'snare' | 'clap' | 'hat' | 'openHat' | 'bass' | 'melody' | 'chords';
+export type PatternId = 'A' | 'B' | 'C' | 'D';
+export type BeatPattern = Record<PadId, Step[]>; // always 16 steps per pad

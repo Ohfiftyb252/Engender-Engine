@@ -63,10 +63,13 @@ export class EnginePlayer {
 
     const s16 = 60 / pack.state.bpm / 4;
 
-    // ─── MASTER LIMITER ──────────────────────────────────────────────────────
+    // ─── MASTER CHAIN: knock clipper → true-peak limiter ─────────────────────
+    // tanh(x * 1.8) saturates peaks into a warm knock; limiter catches the rest
+    const knockClipper = new Tone.WaveShaper((x: number) => Math.tanh(x * 1.8), 4096);
     const masterLimiter = new Tone.Limiter(-0.5);
+    knockClipper.chain(masterLimiter);
     masterLimiter.toDestination();
-    this.fx.push(masterLimiter);
+    this.fx.push(knockClipper, masterLimiter);
 
     // ─── 808 BASS ────────────────────────────────────────────────────────────
     // Sine + subtle dist = real 808 sub energy; portamento for smooth slides
@@ -80,7 +83,7 @@ export class EnginePlayer {
     });
     const bassDist = new Tone.Distortion({ distortion: 0.08, wet: 0.18 });
     const bassComp = new Tone.Compressor({ threshold: -18, ratio: 4, attack: 0.005, release: 0.2 });
-    this.bassSynth.chain(bassDist, bassComp, masterLimiter);
+    this.bassSynth.chain(bassDist, bassComp, knockClipper);
     this.fx.push(bassDist, bassComp);
 
     // ─── CHORD PAD ───────────────────────────────────────────────────────────
@@ -94,7 +97,7 @@ export class EnginePlayer {
     const chordsVerb   = new Tone.Reverb({ decay: 2.5, wet: 0.35 });
     await chordsVerb.generate();
     const chordsComp   = new Tone.Compressor(-12, 3);
-    this.chordsSynth.chain(chordsFilter, chordsVerb, chordsComp, masterLimiter);
+    this.chordsSynth.chain(chordsFilter, chordsVerb, chordsComp, knockClipper);
     this.fx.push(chordsFilter, chordsVerb, chordsComp);
 
     // ─── MELODY ──────────────────────────────────────────────────────────────
@@ -107,7 +110,7 @@ export class EnginePlayer {
     const melodyDelay = new Tone.FeedbackDelay({ delayTime: '8n', feedback: 0.22, wet: 0.18 });
     const melodyVerb  = new Tone.Reverb({ decay: 1.8, wet: 0.22 });
     await melodyVerb.generate();
-    this.melodySynth.chain(melodyDelay, melodyVerb, masterLimiter);
+    this.melodySynth.chain(melodyDelay, melodyVerb, knockClipper);
     this.fx.push(melodyDelay, melodyVerb);
 
     // ─── KICK ────────────────────────────────────────────────────────────────
@@ -119,7 +122,7 @@ export class EnginePlayer {
       volume: 4,
     });
     const kickComp = new Tone.Compressor({ threshold: -6, ratio: 6, attack: 0.001, release: 0.08 });
-    this.kickSynth.chain(kickComp, masterLimiter);
+    this.kickSynth.chain(kickComp, knockClipper);
     this.fx.push(kickComp);
 
     // ─── SNARE / CLAP ────────────────────────────────────────────────────────
@@ -133,7 +136,7 @@ export class EnginePlayer {
     const snareLpf  = new Tone.Filter({ frequency: 10000, type: 'lowpass' });
     const snareVerb = new Tone.Reverb({ decay: 0.6, wet: 0.12 });
     await snareVerb.generate();
-    this.snareSynth.chain(snareHpf, snareLpf, snareVerb, masterLimiter);
+    this.snareSynth.chain(snareHpf, snareLpf, snareVerb, knockClipper);
     this.fx.push(snareHpf, snareLpf, snareVerb);
 
     // ─── HATS ────────────────────────────────────────────────────────────────
@@ -144,7 +147,7 @@ export class EnginePlayer {
       volume: -14,
     });
     const hatHpf = new Tone.Filter({ frequency: 6000, type: 'highpass' });
-    this.hatSynth.chain(hatHpf, masterLimiter);
+    this.hatSynth.chain(hatHpf, knockClipper);
     this.fx.push(hatHpf);
 
     // ─── SCHEDULE PARTS ──────────────────────────────────────────────────────

@@ -1,11 +1,13 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { EnginePlayer, bounceToWav } from './audio/player';
-import type { EngineState, GeneratedPack, MutationTarget, Snapshot } from './types';
+import { EnginePlayer, bounceToWav, renderToWav, wavFilename } from './audio/player';
+import type { EngineState, GeneratedPack, MutationTarget, Snapshot, PackValidationResult, BeatPattern, PadId } from './types';
 import { generateFresh, mutateVoice, recallFromSeed } from './engine/index';
 import { measureSimilarity } from './engine/cloneShield';
+import { validatePocketPack, repairWeakLanes } from './engine/validatePack';
 import { buildZip, downloadZip } from './export/zip';
 import { loadSnapshots, saveSnapshot, deleteSnapshot } from './storage/snapshots';
 import { NOTE_NAMES, validateScaleNotes } from './engine/scale';
+import { BeatMaker, packToBeatPattern, emptyPattern } from './components/BeatMaker';
 
 const GENRES = ['darkTrap', 'ukDrill', 'phonk', 'jerseyClub'] as const;
 const DNA_LIST = ['pressure', 'hypnotic', 'chaotic', 'ominous', 'paranoid', 'unstable', 'cinematic', 'emptyRoom'] as const;
@@ -32,6 +34,8 @@ export default function App() {
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [bouncing, setBouncing] = useState(false);
+  const [repairing, setRepairing] = useState(false);
+  const [validation, setValidation] = useState<PackValidationResult | null>(null);
   const [snapshots, setSnapshots] = useState<Snapshot[]>(loadSnapshots);
   const { toast, showToast } = useToast();
   const [genre, setGenre] = useState<EngineState['genre']>('darkTrap');
@@ -46,6 +50,9 @@ export default function App() {
   const [audioLoading, setAudioLoading] = useState(false);
   const [mutedVoices, setMutedVoices] = useState<Set<MutationTarget>>(new Set());
   const [isStale, setIsStale] = useState(false);
+  const [beatPattern, setBeatPattern] = useState<BeatPattern>(emptyPattern());
+  const [currentStep, setCurrentStep] = useState(-1);
+  const [swing, setSwing] = useState(0);
   const playerRef = useRef<EnginePlayer>(new EnginePlayer());
   const tapTimesRef = useRef<number[]>([]);
 
@@ -62,6 +69,12 @@ export default function App() {
   useEffect(() => {
     const player = playerRef.current;
     return () => { player.dispose(); };
+  }, []);
+
+  // Wire step callback
+  useEffect(() => {
+    playerRef.current.onStep = (step) => setCurrentStep(step);
+    return () => { playerRef.current.onStep = null; };
   }, []);
 
   // Stale detection — compares live UI params against the canonical generated state
@@ -88,12 +101,14 @@ export default function App() {
     if (playing) {
       player.stop();
       setPlaying(false);
+      setCurrentStep(-1);
     } else {
       if (!pack) return;
       setAudioLoading(true);
       setMutedVoices(new Set());
       try {
         await player.load(pack);
+        await player.loadBeatPattern(beatPattern, pack.state.bpm, pack.state.bars ?? 4, swing);
         player.play();
         setPlaying(true);
       } catch (e) {
@@ -102,7 +117,7 @@ export default function App() {
       }
       setAudioLoading(false);
     }
-  }, [playing, pack, showToast]);
+  }, [playing, pack, beatPattern, swing, showToast]);
 
   const handleMuteToggle = useCallback((voice: MutationTarget) => {
     playerRef.current.toggleMute(voice);
@@ -135,11 +150,15 @@ export default function App() {
             showToast('CLONE DETECTED — REGENERATING', 'error');
             const regen = generateFresh({ genre, dna, key, scale, bpm, bars });
             setSeedInput(regen.state.seed.toString(16).toUpperCase());
+            setValidation(validatePocketPack(regen));
+            setBeatPattern(packToBeatPattern(regen));
             setPrevPack(newPack); setPack(regen); setGenerating(false); return;
           }
         }
         setSeedInput(newPack.state.seed.toString(16).toUpperCase());
         setPrevPack(pack); setPack(newPack);
+        setValidation(validatePocketPack(newPack));
+        setBeatPattern(packToBeatPattern(newPack));
       } catch (e) { showToast('ENGINE ERROR', 'error'); console.error(e); }
       setGenerating(false);
     }, 10);
@@ -149,16 +168,32 @@ export default function App() {
     if (!pack) return;
     const mutated = mutateVoice(pack, target);
     setPrevPack(pack); setPack(mutated);
+    setValidation(validatePocketPack(mutated));
     showToast(`${target.toUpperCase()} MUTATED ⟶ ${mutated.fingerprint}`);
   }, [pack, showToast]);
+
+  const handleRepair = useCallback(async () => {
+    if (!pack || repairing) return;
+    setRepairing(true);
+    try {
+      const repaired = repairWeakLanes(pack);
+      setPrevPack(pack); setPack(repaired);
+      const result = validatePocketPack(repaired);
+      setValidation(result);
+      showToast(result.valid ? `REPAIRED ⟶ ${repaired.fingerprint}` : 'REPAIR PARTIAL — STILL WEAK', result.valid ? 'success' : 'error');
+    } catch (e) { showToast('REPAIR FAILED', 'error'); console.error(e); }
+    setRepairing(false);
+  }, [pack, repairing, showToast]);
 
   const handleExport = useCallback(async () => {
     if (!pack || exporting) return;
     setExporting(true);
     try {
-      const blob = await buildZip(pack, loopMode);
+      const previewWavBuf = await renderToWav(pack, 1);
+      const previewWav = new Uint8Array(previewWavBuf);
+      const blob = await buildZip(pack, loopMode, previewWav);
       downloadZip(blob, pack.fingerprint, pack.state.bpm, pack.state.bars ?? 4);
-      showToast(`EXPORTED EngenderEngine_${pack.fingerprint}_${pack.state.bpm}BPM.zip`);
+      showToast(`POCKET PACK READY ⟶ ${pack.fingerprint}`);
     } catch (e) { showToast('EXPORT FAILED', 'error'); console.error(e); }
     setExporting(false);
   }, [pack, exporting, loopMode, showToast]);
@@ -180,7 +215,9 @@ export default function App() {
   }, [pack, showToast]);
 
   const handleRecallSnapshot = useCallback((snap: Snapshot) => {
-    setPrevPack(pack); setPack(recallFromSeed(snap.state));
+    const recalled = recallFromSeed(snap.state);
+    setPrevPack(pack); setPack(recalled);
+    setValidation(validatePocketPack(recalled));
     setGenre(snap.state.genre); setDna(snap.state.dna); setKey(snap.state.key);
     setScale(snap.state.scale); setBpm(snap.state.bpm); setBars(snap.state.bars ?? 4);
     setSeedInput(snap.state.seed.toString(16).toUpperCase());
@@ -190,6 +227,21 @@ export default function App() {
   const handleDeleteSnapshot = useCallback((id: string, e: React.MouseEvent) => {
     e.stopPropagation(); deleteSnapshot(id); setSnapshots(loadSnapshots());
   }, []);
+
+  const handlePadTrigger = useCallback(async (padId: PadId, velocity: number, pitch: number) => {
+    if (!playerRef.current.initialized) {
+      if (!pack) return;
+      await playerRef.current.load(pack);
+    }
+    playerRef.current.triggerPad(padId, velocity, pitch);
+  }, [pack]);
+
+  const handleSwingChange = useCallback(async (v: number) => {
+    setSwing(v);
+    if (playing && pack) {
+      await playerRef.current.loadBeatPattern(beatPattern, pack.state.bpm, pack.state.bars ?? 4, v);
+    }
+  }, [playing, pack, beatPattern]);
 
   const scores = pack?.scores;
   const fingerprint = pack?.fingerprint ?? '------';
@@ -241,7 +293,9 @@ export default function App() {
             <label className="control-label">BARS</label>
             <select value={bars} onChange={e => setBars(Number(e.target.value))}>
               <option value={4}>4 BARS</option>
-              <option value={5}>5 BARS (EXP)</option>
+              <option value={8}>8 BARS</option>
+              <option value={16}>16 BARS</option>
+              <option value={32}>32 BARS</option>
             </select>
           </div>
           <div className="control-group full-width">
@@ -254,9 +308,34 @@ export default function App() {
         </div>
       </div>
       <div className="generate-section">
-        <button className={`btn-generate${generating ? ' generating' : ''}`} onClick={handleGenerate} disabled={generating}>
-          {generating ? 'GENERATING…' : '▶ GENERATE'}
-        </button>
+        <div className="gen-play-row">
+          <button className={`btn-generate${generating ? ' generating' : ''}`} onClick={handleGenerate} disabled={generating}>
+            {generating ? 'GENERATING…' : '▶ GENERATE'}
+          </button>
+          {pack && (
+            <button
+              className={`btn-play-inline${playing ? ' playing' : ''}`}
+              onClick={handlePlayStop}
+              disabled={audioLoading}
+              title={playing ? 'Stop' : 'Play preview'}
+            >
+              {audioLoading ? '⧗' : playing ? '■' : '▶'}
+            </button>
+          )}
+        </div>
+        {pack && (
+          <div className="voice-mutes">
+            {(['chords', 'melody', 'bass', 'drums'] as const).map(voice => (
+              <button
+                key={voice}
+                className={`btn-mute ${mutedVoices.has(voice) ? 'muted' : `active-${voice}`}`}
+                onClick={() => handleMuteToggle(voice)}
+              >
+                {voice.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       {scores && (
         <div className="section">
@@ -279,38 +358,28 @@ export default function App() {
               </span>
             </div>
           )}
-        </div>
-      )}
-      {pack && (
-        <div className="section">
-          <div className="section-label">PREVIEW</div>
-          <div className="preview-controls">
-            <button
-              className={`btn-play${playing ? ' playing' : ''}`}
-              onClick={handlePlayStop}
-              disabled={audioLoading}
-            >
-              {audioLoading ? '⧗ LOADING AUDIO…' : playing ? '■ STOP PREVIEW' : '▶ PLAY PREVIEW'}
-            </button>
-            <div className="voice-mutes">
-              {(['chords', 'melody', 'bass'] as const).map(voice => (
-                <button
-                  key={voice}
-                  className={`btn-mute ${mutedVoices.has(voice) ? 'muted' : `active-${voice}`}`}
-                  onClick={() => handleMuteToggle(voice)}
-                >
-                  {voice.toUpperCase()}
+          {validation && (
+            <div className={`pack-validation ${validation.valid ? 'valid' : 'invalid'}`}>
+              <span className="pack-val-label">{validation.valid ? '✓ VALID PACK' : '⚠ NEEDS REPAIR'}</span>
+              {!validation.valid && validation.issues.length > 0 && (
+                <ul className="pack-val-issues">
+                  {validation.issues.map((issue, i) => <li key={i}>{issue}</li>)}
+                </ul>
+              )}
+              {!validation.valid && (
+                <button className="btn-repair" onClick={handleRepair} disabled={repairing}>
+                  {repairing ? '⧗ REPAIRING…' : '⟳ REPAIR WEAK LANES'}
                 </button>
-              ))}
+              )}
             </div>
-          </div>
+          )}
         </div>
       )}
       {pack && (
         <div className="section">
           <div className="section-label">MUTATION ENGINE</div>
           <div className="mutation-btns">
-            {(['melody', 'chords', 'bass'] as const).map(t => (
+            {(['melody', 'chords', 'bass', 'drums'] as const).map(t => (
               <button key={t} className={`btn-mutate ${t}`} onClick={() => handleMutate(t)}>MUTATE {t.toUpperCase()}</button>
             ))}
           </div>
@@ -323,6 +392,15 @@ export default function App() {
           )}
         </div>
       )}
+      <BeatMaker
+        pack={pack}
+        playing={playing}
+        currentStep={currentStep}
+        swing={swing}
+        onSwingChange={handleSwingChange}
+        onPatternChange={setBeatPattern}
+        onPadTrigger={handlePadTrigger}
+      />
       <div className="section">
         <div className="section-label">SNAPSHOTS</div>
         <div className="snapshot-actions">
@@ -369,8 +447,8 @@ export default function App() {
                 onClick={handleExport}
                 disabled={exporting || isStale}
               >
-                <span>{exporting ? '⧗ BUILDING ZIP…' : '⤓ EXPORT MIDI PACK'}</span>
-                <span className="export-sub">3 MIDI + MANIFEST</span>
+                <span>{exporting ? '⧗ BUILDING ZIP…' : '⤓ DOWNLOAD POCKET PACK'}</span>
+                <span className="export-sub">4 MIDI + WAV + MANIFEST</span>
               </button>
               <button
                 className={`btn-bounce${bouncing ? ' bouncing' : ''}`}
@@ -378,7 +456,7 @@ export default function App() {
                 disabled={bouncing || isStale}
               >
                 <span>{bouncing ? '⧗ BOUNCING…' : '◎ BOUNCE TO WAV'}</span>
-                <span className="export-sub">{bars * loopMode} BAR AUDIO RENDER</span>
+                <span className="export-sub">{wavFilename(pack, loopMode)}</span>
               </button>
             </div>
           </>

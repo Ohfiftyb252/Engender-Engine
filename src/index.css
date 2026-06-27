@@ -249,3 +249,124 @@ select:focus, input:focus { border-color: var(--border-bright); }
 }
 .bm-step.cur { outline: 2px solid #fff; outline-offset: 1px; }
 .bm-step:active { transform: scale(0.92); }
+
+/* ── 7-CARD TELEMETRY GRID ──────────────────────────────────────────────── */
+.telemetry-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 8px;
+}
+.tel-value.originality { color: #ffd60a; }
+.tel-value.tension     { color: #ff6b35; }
+.tel-value.movement    { color: #30d158; }
+.tel-value.simplicity  { color: #5ac8fa; }
+.tel-bar-fill.originality { background: #ffd60a; }
+.tel-bar-fill.tension     { background: #ff6b35; }
+.tel-bar-fill.movement    { background: #30d158; }
+.tel-bar-fill.simplicity  { background: #5ac8fa; }
+
+/* ── REPAIR BUTTONS ─────────────────────────────────────────────────────── */
+.repair-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.btn-repair-lane {
+  padding: 6px 10px;
+  font-size: 11px;
+  font-family: inherit;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card);
+  color: #ff9f0a;
+  cursor: pointer;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.btn-repair-lane:hover { background: #ff9f0a22; }
+.repair-report {
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: #30d15822;
+  border: 1px solid #30d158;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #30d158;
+  letter-spacing: 0.06em;
+}
+
+/* ── DIMENSION MUTATION ROW ─────────────────────────────────────────────── */
+.mutation-dim-row {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.btn-mutate.groove       { border-color: #30d158; color: #30d158; }
+.btn-mutate.velocity     { border-color: #bf5af2; color: #bf5af2; }
+.btn-mutate.rhythm       { border-color: #0a84ff; color: #0a84ff; }
+.btn-mutate.density      { border-color: #ffd60a; color: #ffd60a; }
+.btn-mutate.humanization { border-color: #66d4cf; color: #66d4cf; }
+
+/* ── UNDO BUTTON ────────────────────────────────────────────────────────── */
+.btn-undo {
+  margin-top: 6px;
+  width: 100%;
+  padding: 8px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.btn-undo:hover { color: var(--text); border-color: var(--text-muted); }
+
+/* ── SNAPSHOT ACTIONS ROW ───────────────────────────────────────────────── */
+.snap-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.snap-duplicate, .snap-branch {
+  padding: 4px 7px;
+  font-size: 13px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.snap-duplicate:hover { color: #0a84ff; border-color: #0a84ff; }
+.snap-branch:hover { color: #30d158; border-color: #30d158; }
+.snap-branch:disabled { opacity: 0.35; cursor: default; }
+
+/* ── MOBILE OVERFLOW FIXES ──────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+.app { max-width: 100vw; overflow-x: hidden; }
+.mutation-btns { flex-wrap: wrap; }
+.export-btns { flex-direction: column; }
+.controls-grid { grid-template-columns: 1fr; }
+@media (min-width: 480px) {
+  .controls-grid { grid-template-columns: 1fr 1fr; }
+  .export-btns { flex-direction: row; }
+}
+
+/* ── SNAP CARD LAYOUT FIX ───────────────────────────────────────────────── */
+.snapshot-card {
+  overflow: hidden;
+}
+.snap-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* ── STICKY FOOTER CLEARANCE ────────────────────────────────────────────── */
+.app { padding-bottom: 80px; }

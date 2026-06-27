@@ -1,13 +1,14 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { EnginePlayer, bounceToWav, renderToWav, wavFilename } from './audio/player';
 import type { EngineState, GeneratedPack, MutationTarget, Snapshot, PackValidationResult, BeatPattern, PadId } from './types';
-import { generateFresh, mutateVoice, recallFromSeed } from './engine/index';
+import { generateFresh, mutateVoice, recallFromSeed, mutateVoiceWithDimension } from './engine/index';
 import { measureSimilarity } from './engine/cloneShield';
-import { validatePocketPack, repairWeakLanes } from './engine/validatePack';
+import { validatePocketPack, repairWeakLanes, repairLane } from './engine/validatePack';
 import { buildZip, downloadZip } from './export/zip';
-import { loadSnapshots, saveSnapshot, deleteSnapshot } from './storage/snapshots';
+import { loadSnapshots, saveSnapshot, deleteSnapshot, duplicateSnapshot, branchFromSnapshot } from './storage/snapshots';
 import { NOTE_NAMES, validateScaleNotes } from './engine/scale';
 import { BeatMaker, packToBeatPattern, emptyPattern } from './components/BeatMaker';
+import type { MutationDimension } from './types';
 
 const GENRES = ['darkTrap', 'ukDrill', 'phonk', 'jerseyClub'] as const;
 const DNA_LIST = ['pressure', 'hypnotic', 'chaotic', 'ominous', 'paranoid', 'unstable', 'cinematic', 'emptyRoom'] as const;
@@ -37,6 +38,7 @@ export default function App() {
   const [repairing, setRepairing] = useState(false);
   const [validation, setValidation] = useState<PackValidationResult | null>(null);
   const [snapshots, setSnapshots] = useState<Snapshot[]>(loadSnapshots);
+  const [repairReport, setRepairReport] = useState<string[]>([]);
   const { toast, showToast } = useToast();
   const [genre, setGenre] = useState<EngineState['genre']>('darkTrap');
   const [dna, setDna] = useState<EngineState['dna']>('ominous');
@@ -176,14 +178,46 @@ export default function App() {
     if (!pack || repairing) return;
     setRepairing(true);
     try {
+      const validation_before = validatePocketPack(pack);
       const repaired = repairWeakLanes(pack);
       setPrevPack(pack); setPack(repaired);
       const result = validatePocketPack(repaired);
       setValidation(result);
+      setRepairReport(validation_before.weakLanes.map(l => l.toUpperCase()));
       showToast(result.valid ? `REPAIRED ⟶ ${repaired.fingerprint}` : 'REPAIR PARTIAL — STILL WEAK', result.valid ? 'success' : 'error');
     } catch (e) { showToast('REPAIR FAILED', 'error'); console.error(e); }
     setRepairing(false);
   }, [pack, repairing, showToast]);
+
+  const handleRepairLane = useCallback((lane: 'chords' | 'bass' | 'melody' | 'drums') => {
+    if (!pack || repairing) return;
+    setRepairing(true);
+    try {
+      const repaired = repairLane(pack, lane);
+      setPrevPack(pack); setPack(repaired);
+      const result = validatePocketPack(repaired);
+      setValidation(result);
+      setRepairReport([lane.toUpperCase()]);
+      showToast(`REPAIRED ${lane.toUpperCase()} ⟶ ${repaired.fingerprint}`, 'success');
+    } catch (e) { showToast('REPAIR FAILED', 'error'); }
+    setRepairing(false);
+  }, [pack, repairing, showToast]);
+
+  const handleMutateWithDimension = useCallback((target: MutationTarget, dimension: MutationDimension) => {
+    if (!pack) return;
+    const mutated = mutateVoiceWithDimension(pack, target, dimension);
+    setPrevPack(pack); setPack(mutated);
+    setValidation(validatePocketPack(mutated));
+    showToast(`${dimension.toUpperCase()} MUTATED ⟶ ${mutated.fingerprint}`);
+  }, [pack, showToast]);
+
+  const handleUndo = useCallback(() => {
+    if (!prevPack) return;
+    setPack(prevPack); setPrevPack(null);
+    setValidation(validatePocketPack(prevPack));
+    setRepairReport([]);
+    showToast('UNDONE');
+  }, [prevPack, showToast]);
 
   const handleExport = useCallback(async () => {
     if (!pack || exporting) return;
@@ -191,7 +225,7 @@ export default function App() {
     try {
       const previewWavBuf = await renderToWav(pack, 1);
       const previewWav = new Uint8Array(previewWavBuf);
-      const blob = await buildZip(pack, loopMode, previewWav);
+      const blob = await buildZip(pack, loopMode, previewWav, pack.repairWarnings ?? []);
       downloadZip(blob, pack.fingerprint, pack.state.bpm, pack.state.bars ?? 4);
       showToast(`POCKET PACK READY ⟶ ${pack.fingerprint}`);
     } catch (e) { showToast('EXPORT FAILED', 'error'); console.error(e); }
@@ -227,6 +261,21 @@ export default function App() {
   const handleDeleteSnapshot = useCallback((id: string, e: React.MouseEvent) => {
     e.stopPropagation(); deleteSnapshot(id); setSnapshots(loadSnapshots());
   }, []);
+
+  const handleDuplicateSnapshot = useCallback((id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    duplicateSnapshot(id);
+    setSnapshots(loadSnapshots());
+    showToast('SNAPSHOT DUPLICATED');
+  }, [showToast]);
+
+  const handleBranchFromSnapshot = useCallback((snap: Snapshot, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!pack) return;
+    branchFromSnapshot(snap.id, pack.state, pack.scores, pack.fingerprint);
+    setSnapshots(loadSnapshots());
+    showToast(`BRANCHED FROM ${snap.fingerprint}`);
+  }, [pack, showToast]);
 
   const handlePadTrigger = useCallback(async (padId: PadId, velocity: number, pitch: number) => {
     if (!playerRef.current.initialized) {
@@ -341,11 +390,11 @@ export default function App() {
         <div className="section">
           <div className="section-label">TELEMETRY</div>
           <div className="telemetry-grid">
-            {(['bounce', 'pocket', 'darkness'] as const).map(k => (
+            {(['bounce', 'pocket', 'darkness', 'originality', 'tension', 'movement', 'simplicity'] as const).map(k => (
               <div key={k} className="telemetry-card">
                 <div className="tel-name">{k.toUpperCase()}</div>
-                <div className={`tel-value ${k}`}>{scores[k]}</div>
-                <div className="tel-bar"><div className={`tel-bar-fill ${k}`} style={{ width: `${scores[k]}%` }} /></div>
+                <div className={`tel-value ${k}`}>{scores[k] ?? 0}</div>
+                <div className="tel-bar"><div className={`tel-bar-fill ${k}`} style={{ width: `${scores[k] ?? 0}%` }} /></div>
               </div>
             ))}
           </div>
@@ -367,9 +416,21 @@ export default function App() {
                 </ul>
               )}
               {!validation.valid && (
-                <button className="btn-repair" onClick={handleRepair} disabled={repairing}>
-                  {repairing ? '⧗ REPAIRING…' : '⟳ REPAIR WEAK LANES'}
-                </button>
+                <div className="repair-btns">
+                  <button className="btn-repair" onClick={handleRepair} disabled={repairing}>
+                    {repairing ? '⧗ REPAIRING…' : '⟳ REPAIR WEAK LANES'}
+                  </button>
+                  {validation.weakLanes.map(lane => (
+                    <button key={lane} className={`btn-repair-lane ${lane}`} onClick={() => handleRepairLane(lane)} disabled={repairing}>
+                      FIX {lane.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {repairReport.length > 0 && (
+                <div className="repair-report">
+                  ✓ REPAIRED: {repairReport.join(', ')}
+                </div>
               )}
             </div>
           )}
@@ -383,6 +444,16 @@ export default function App() {
               <button key={t} className={`btn-mutate ${t}`} onClick={() => handleMutate(t)}>MUTATE {t.toUpperCase()}</button>
             ))}
           </div>
+          <div className="mutation-btns mutation-dim-row">
+            <button className="btn-mutate groove" onClick={() => handleMutateWithDimension('drums', 'groove')}>MUTATE GROOVE</button>
+            <button className="btn-mutate velocity" onClick={() => handleMutateWithDimension('melody', 'velocity')}>MUTATE VELOCITY</button>
+            <button className="btn-mutate rhythm" onClick={() => handleMutateWithDimension('melody', 'rhythm')}>MUTATE RHYTHM</button>
+            <button className="btn-mutate density" onClick={() => handleMutateWithDimension('chords', 'density')}>MUTATE DENSITY</button>
+            <button className="btn-mutate humanization" onClick={() => handleMutateWithDimension('bass', 'humanization')}>MUTATE HUMAN.</button>
+          </div>
+          {prevPack && (
+            <button className="btn-undo" onClick={handleUndo}>↩ UNDO LAST MUTATION</button>
+          )}
           {tree.length > 0 && (
             <div className="mutation-tree">
               {tree.map(node => (
@@ -420,7 +491,11 @@ export default function App() {
                 <span className="snap-score p">P{snap.scores.pocket}</span>
                 <span className="snap-score d">D{snap.scores.darkness}</span>
               </div>
-              <button className="snap-delete" onClick={e => handleDeleteSnapshot(snap.id, e)} title="Delete">×</button>
+              <div className="snap-actions">
+                <button className="snap-duplicate" onClick={e => handleDuplicateSnapshot(snap.id, e)} title="Duplicate">⧉</button>
+                <button className="snap-branch" onClick={e => handleBranchFromSnapshot(snap, e)} title="Branch from here" disabled={!pack}>⑂</button>
+                <button className="snap-delete" onClick={e => handleDeleteSnapshot(snap.id, e)} title="Delete">×</button>
+              </div>
             </div>
           ))}
         </div>

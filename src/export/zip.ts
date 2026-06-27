@@ -98,6 +98,7 @@ export async function buildZip(
 
   zip.file('pack_manifest.json', JSON.stringify({
     appName: 'ENGENDER ENGINE™',
+    version: '0.2.0',
     engineVersion: ENGINE_VERSION,
     renderVersion: RENDER_VERSION,
     fingerprint,

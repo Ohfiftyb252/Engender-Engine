@@ -7,6 +7,7 @@ import { validatePocketPack, repairWeakLanes, repairLane } from './engine/valida
 import { buildZip, downloadZip } from './export/zip';
 import { loadSnapshots, saveSnapshot, deleteSnapshot, duplicateSnapshot, branchFromSnapshot } from './storage/snapshots';
 import { NOTE_NAMES, validateScaleNotes } from './engine/scale';
+import { APP_VERSION } from './engine/fingerprint';
 import { BeatMaker, packToBeatPattern, emptyPattern } from './components/BeatMaker';
 import type { MutationDimension } from './types';
 
@@ -114,7 +115,10 @@ export default function App() {
         player.play();
         setPlaying(true);
       } catch (e) {
-        showToast('AUDIO ERROR', 'error');
+        const msg = e instanceof Error && (e.name === 'NotAllowedError' || e.message.includes('suspended'))
+          ? 'TAP SCREEN TO UNLOCK AUDIO'
+          : 'AUDIO ERROR — TAP TO RETRY';
+        showToast(msg, 'error');
         console.error(e);
       }
       setAudioLoading(false);
@@ -232,7 +236,10 @@ export default function App() {
       const blob = await buildZip(pack, loopMode, previewWav, pack.repairWarnings ?? []);
       downloadZip(blob, pack.fingerprint, pack.state.bpm, pack.state.bars ?? 4);
       showToast(`POCKET PACK READY ⟶ ${pack.fingerprint}`);
-    } catch (e) { showToast('EXPORT FAILED', 'error'); console.error(e); }
+    } catch (e) {
+      showToast(e instanceof Error && e.message ? `ZIP FAILED: ${e.message.slice(0, 40)}` : 'ZIP EXPORT FAILED', 'error');
+      console.error(e);
+    }
     setExporting(false);
   }, [pack, exporting, loopMode, showToast]);
 
@@ -242,7 +249,7 @@ export default function App() {
     try {
       await bounceToWav(pack, loopMode);
       showToast(`BOUNCED EngenderEngine_${pack.fingerprint}_${pack.state.bpm}BPM_${loopMode}x.wav`);
-    } catch (e) { showToast('BOUNCE FAILED', 'error'); console.error(e); }
+    } catch (e) { showToast('WAV BOUNCE FAILED — CHECK AUDIO CONTEXT', 'error'); console.error(e); }
     setBouncing(false);
   }, [pack, bouncing, loopMode, showToast]);
 
@@ -306,9 +313,12 @@ export default function App() {
     <div className="app">
       {toast && <div className={`toast visible ${toast.type}`}>{toast.msg}</div>}
       <header className="header">
-        <div className="header-logo">ENGENDER ENGINE™</div>
+        <div className="header-logo">ENGENDER ENGINE™<span className="header-version"> v{APP_VERSION}</span></div>
         <div className="header-fp"><span>ID</span><span className="fp-badge">{fingerprint}</span></div>
       </header>
+      {!pack && (
+        <div className="app-tagline">Generate beat DNA. Repair weak lanes. Export MIDI + WAV.</div>
+      )}
       <div className="section">
         <div className="section-label">ENGINE PARAMETERS</div>
         <div className="controls-grid">
@@ -441,7 +451,7 @@ export default function App() {
           )}
         </div>
       )}
-      {pack && (
+      {pack ? (
         <div className="section">
           <div className="section-label">MUTATION ENGINE</div>
           <div className="mutation-btns">
@@ -459,13 +469,20 @@ export default function App() {
           {prevPack && (
             <button className="btn-undo" onClick={handleUndo}>↩ UNDO LAST MUTATION</button>
           )}
-          {tree.length > 0 && (
+          {tree.length > 0 ? (
             <div className="mutation-tree">
               {tree.map(node => (
                 <span key={node.id} className={`mutation-node ${node.target}${node.id === pack.state.activeNodeId ? ' active' : ''}`}>{node.id}</span>
               ))}
             </div>
+          ) : (
+            <div className="empty-state empty-state-sm">NO MUTATIONS YET — HIT MUTATE TO FORK</div>
           )}
+        </div>
+      ) : (
+        <div className="section">
+          <div className="section-label">MUTATION ENGINE</div>
+          <div className="empty-state">GENERATE A PACK TO UNLOCK MUTATIONS</div>
         </div>
       )}
       <BeatMaker

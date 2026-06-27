@@ -81,10 +81,7 @@ export function validatePocketPack(pack: GeneratedPack): PackValidationResult {
   if (pack.melody.length > totalTicks / 2) {
     issues.push('MELODY OVERLOADED');
   }
-  if (pack.chords.length > totalTicks) {
-    issues.push('CHORDS TOO DENSE');
-    weak.add('chords');
-  }
+  // Note: chords density is checked by Issue 8 (>60% threshold covers >100% too)
 
   // ── Issue 6: Bass and kick collision ──────────────────────────────────────
   // >30% of bass events share a position (within 1 tick) with kick drum events

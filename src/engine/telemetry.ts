@@ -106,9 +106,10 @@ function computeMovement(melody: MidiEvent[], bass: MidiEvent[]): number {
   const all = [...melody, ...bass];
   if (all.length === 0) return 0;
 
-  // Event density: events per bar (4 bars assumed via TOTAL_TICKS)
-  const bars = TOTAL_TICKS / 16; // 16 ticks per bar
-  const eventDensity = all.length / Math.max(1, bars);
+  // Infer actual bar count from the highest event position
+  const maxPos = Math.max(...all.map(e => e.position));
+  const inferredBars = Math.max(4, Math.ceil((maxPos + 1) / 16));
+  const eventDensity = all.length / Math.max(1, inferredBars);
 
   // Average step size between consecutive melody notes
   let avgStepSize = 0;

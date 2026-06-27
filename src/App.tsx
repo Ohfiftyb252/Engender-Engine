@@ -142,6 +142,7 @@ export default function App() {
 
   const handleGenerate = useCallback(() => {
     setGenerating(true);
+    setRepairReport([]);
     setTimeout(() => {
       try {
         const parsedSeed = seedInput ? (parseInt(seedInput, 16) || parseInt(seedInput, 10)) : undefined;
@@ -178,12 +179,13 @@ export default function App() {
     if (!pack || repairing) return;
     setRepairing(true);
     try {
-      const validation_before = validatePocketPack(pack);
+      const validationBefore = validatePocketPack(pack);
       const repaired = repairWeakLanes(pack);
-      setPrevPack(pack); setPack(repaired);
-      const result = validatePocketPack(repaired);
+      const repairedWithMeta: GeneratedPack = { ...repaired, repairWarnings: validationBefore.issues };
+      setPrevPack(pack); setPack(repairedWithMeta);
+      const result = validatePocketPack(repairedWithMeta);
       setValidation(result);
-      setRepairReport(validation_before.weakLanes.map(l => l.toUpperCase()));
+      setRepairReport(validationBefore.weakLanes.map(l => l.toUpperCase()));
       showToast(result.valid ? `REPAIRED ⟶ ${repaired.fingerprint}` : 'REPAIR PARTIAL — STILL WEAK', result.valid ? 'success' : 'error');
     } catch (e) { showToast('REPAIR FAILED', 'error'); console.error(e); }
     setRepairing(false);
@@ -193,9 +195,11 @@ export default function App() {
     if (!pack || repairing) return;
     setRepairing(true);
     try {
+      const issuesBefore = validatePocketPack(pack).issues;
       const repaired = repairLane(pack, lane);
-      setPrevPack(pack); setPack(repaired);
-      const result = validatePocketPack(repaired);
+      const repairedWithMeta: GeneratedPack = { ...repaired, repairWarnings: issuesBefore };
+      setPrevPack(pack); setPack(repairedWithMeta);
+      const result = validatePocketPack(repairedWithMeta);
       setValidation(result);
       setRepairReport([lane.toUpperCase()]);
       showToast(`REPAIRED ${lane.toUpperCase()} ⟶ ${repaired.fingerprint}`, 'success');
@@ -252,6 +256,7 @@ export default function App() {
     const recalled = recallFromSeed(snap.state);
     setPrevPack(pack); setPack(recalled);
     setValidation(validatePocketPack(recalled));
+    setRepairReport([]);
     setGenre(snap.state.genre); setDna(snap.state.dna); setKey(snap.state.key);
     setScale(snap.state.scale); setBpm(snap.state.bpm); setBars(snap.state.bars ?? 4);
     setSeedInput(snap.state.seed.toString(16).toUpperCase());
@@ -427,11 +432,11 @@ export default function App() {
                   ))}
                 </div>
               )}
-              {repairReport.length > 0 && (
-                <div className="repair-report">
-                  ✓ REPAIRED: {repairReport.join(', ')}
-                </div>
-              )}
+            </div>
+          )}
+          {repairReport.length > 0 && (
+            <div className="repair-report">
+              ✓ REPAIRED: {repairReport.join(', ')}
             </div>
           )}
         </div>
@@ -523,7 +528,7 @@ export default function App() {
                 disabled={exporting || isStale}
               >
                 <span>{exporting ? '⧗ BUILDING ZIP…' : '⤓ DOWNLOAD POCKET PACK'}</span>
-                <span className="export-sub">4 MIDI + WAV + MANIFEST</span>
+                <span className="export-sub">10 FILES: 4 MIDI + 5 JSON + WAV</span>
               </button>
               <button
                 className={`btn-bounce${bouncing ? ' bouncing' : ''}`}

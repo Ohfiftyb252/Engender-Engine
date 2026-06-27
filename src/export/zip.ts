@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import type { GeneratedPack, MutationHistoryEntry } from '../types';
+import type { GeneratedPack } from '../types';
 import { buildMidiTrack, buildDrumTrack } from './midi';
 import { NOTE_NAMES } from '../engine/scale';
 import { ENGINE_VERSION, RENDER_VERSION } from '../engine/fingerprint';
@@ -10,7 +10,6 @@ export async function buildZip(
   loopMode: 1 | 2 | 4 = 1,
   previewWav?: Uint8Array,
   repairWarnings?: string[],
-  mutationHistory?: MutationHistoryEntry[],
 ): Promise<Blob> {
   const zip = new JSZip();
   const { state, scores, fingerprint } = pack;
@@ -28,7 +27,6 @@ export async function buildZip(
 
   const validation = validatePocketPack(pack);
   const warnings = repairWarnings ?? [];
-  const history = mutationHistory ?? [];
 
   // telemetry.json — all 7 telemetry scores
   zip.file('telemetry.json', JSON.stringify({
@@ -81,7 +79,7 @@ export async function buildZip(
     },
     telemetry:       scores,
     repairWarnings:  warnings,
-    mutationHistory: history,
+    mutationHistory: state.mutationTree,
     exportTimestamp,
   }, null, 2));
 

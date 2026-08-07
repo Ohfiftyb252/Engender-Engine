@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { EnginePlayer, bounceToWav, renderToWav, wavFilename } from './audio/player';
+import { EnginePlayer, bounceToWav, renderToWav, renderMelodyStem, wavFilename } from './audio/player';
 import type { EngineState, GeneratedPack, MutationTarget, Snapshot, PackValidationResult, BeatPattern, PadId } from './types';
 import { generateFresh, mutateVoice, recallFromSeed, mutateVoiceWithDimension } from './engine/index';
 import { measureSimilarity } from './engine/cloneShield';
@@ -279,10 +279,14 @@ export default function App() {
     if (!pack || exporting) return;
     setExporting(true);
     try {
-      const previewWavBuf = await renderToWav(pack, 1);
-      const previewWav = new Uint8Array(previewWavBuf);
-      const blob = await buildZip(pack, loopMode, previewWav, pack.repairWarnings ?? []);
-      downloadZip(blob, pack.fingerprint, pack.state.bpm, pack.state.bars ?? 4);
+      const [previewWavBuf, melodyStemBuf] = await Promise.all([
+        renderToWav(pack, loopMode),
+        renderMelodyStem(pack),
+      ]);
+      const previewWav   = new Uint8Array(previewWavBuf);
+      const melodyStemWav = new Uint8Array(melodyStemBuf);
+      const blob = await buildZip(pack, loopMode, previewWav, melodyStemWav, pack.repairWarnings ?? []);
+      downloadZip(blob, pack.fingerprint, pack.state.bpm, NOTE_NAMES[pack.state.key % 12], pack.state.bars ?? 4);
       showToast(`POCKET PACK READY ⟶ ${pack.fingerprint}`);
     } catch (e) {
       showToast(e instanceof Error && e.message ? `ZIP FAILED: ${e.message.slice(0, 40)}` : 'ZIP EXPORT FAILED', 'error');

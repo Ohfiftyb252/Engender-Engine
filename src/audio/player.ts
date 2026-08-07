@@ -52,6 +52,12 @@ export class EnginePlayer {
   async load(pack: GeneratedPack): Promise<void> {
     this.dispose();
     await Tone.start();
+    // Explicit resume for iOS Safari / Chrome Android — AudioContext may stay
+    // suspended even after Tone.start() until the raw context is resumed.
+    const rawCtx = Tone.getContext().rawContext as AudioContext;
+    if (rawCtx.state !== 'running') {
+      await rawCtx.resume().catch(() => {});
+    }
 
     const bars = pack.state.bars ?? 4;
     const loopEnd = `${bars}m`;
@@ -465,6 +471,62 @@ export async function renderToWav(pack: GeneratedPack, loopMode: 1 | 2 | 4 = 1):
   const raw = toneBuffer.get();
   if (!raw) throw new Error('Offline render returned empty buffer');
   return audioBufferToWav(raw);
+}
+
+// ─── MELODY DARK-SAW STEM RENDER ────────────────────────────────────────────
+// Renders only the melody voice through a detuned dual-sawtooth + LPF patch
+// using a raw OfflineAudioContext — no Tone.js dependency.
+
+export async function renderMelodyStem(pack: GeneratedPack): Promise<ArrayBuffer> {
+  const bpm = pack.state.bpm;
+  const bars = pack.state.bars ?? 4;
+  const s16 = 60 / bpm / 4;
+  const durationSecs = bars * 4 * (60 / bpm) + 2.5; // + release tail
+
+  const SR = 44100;
+  const offCtx = new OfflineAudioContext(2, Math.ceil(SR * durationSecs), SR);
+
+  const master = offCtx.createGain();
+  master.gain.value = 0.70;
+  master.connect(offCtx.destination);
+
+  for (const e of pack.melody) {
+    const freq = 440 * Math.pow(2, (e.pitch - 69) / 12);
+    const t0   = e.position * s16;
+    const dur  = Math.max(1, e.duration) * s16;
+    const amp  = (e.velocity / 127) * 0.38;
+
+    const osc1   = offCtx.createOscillator();
+    const osc2   = offCtx.createOscillator();
+    const filter = offCtx.createBiquadFilter();
+    const env    = offCtx.createGain();
+
+    osc1.type = 'sawtooth';
+    osc2.type = 'sawtooth';
+    osc1.frequency.setValueAtTime(freq, t0);
+    osc2.frequency.setValueAtTime(freq * 1.005, t0); // ~5 cents detune
+
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(1800, t0);
+    filter.Q.setValueAtTime(3.5, t0);
+
+    const releaseAt = Math.max(t0 + 0.03, t0 + dur - 0.01);
+    env.gain.setValueAtTime(0.0001, t0);
+    env.gain.exponentialRampToValueAtTime(amp, t0 + 0.02);
+    env.gain.setValueAtTime(amp, releaseAt);
+    env.gain.exponentialRampToValueAtTime(0.0001, releaseAt + 0.4);
+
+    osc1.connect(filter);
+    osc2.connect(filter);
+    filter.connect(env);
+    env.connect(master);
+
+    osc1.start(t0); osc2.start(t0);
+    osc1.stop(releaseAt + 0.45); osc2.stop(releaseAt + 0.45);
+  }
+
+  const rendered = await offCtx.startRendering();
+  return audioBufferToWav(rendered);
 }
 
 export async function bounceToWav(pack: GeneratedPack, loopMode: 1 | 2 | 4 = 1): Promise<void> {

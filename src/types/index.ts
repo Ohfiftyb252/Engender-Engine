@@ -14,7 +14,37 @@ export type ScaleType =
   | 'harmonicMinor'
   | 'phrygian'
   | 'phrygianDominant'
-  | 'aeolian';
+  | 'aeolian'
+  // Major family
+  | 'majorBebop'
+  | 'majorBulgarian'
+  | 'majorPentatonic'
+  | 'majorPersian'
+  | 'majorPolymode'
+  | 'lydian'
+  | 'mixolydian'
+  // Minor family
+  | 'minorHungarian'
+  | 'minorMelodic'
+  | 'minorNatural'
+  | 'minorNeapolitan'
+  | 'minorPentatonic'
+  | 'minorPolymode'
+  | 'minorRomanian'
+  | 'dorian'
+  | 'locrian'
+  // World / special
+  | 'chromatic'
+  | 'arabic'
+  | 'blues'
+  | 'diminished'
+  | 'dominantBebop'
+  | 'egyptian'
+  | 'enigmatic'
+  | 'hirajoshi'
+  | 'iwato'
+  | 'japaneseInsen'
+  | 'locrianSuper';
 
 export type MutationTarget = 'melody' | 'bass' | 'chords' | 'drums';
 

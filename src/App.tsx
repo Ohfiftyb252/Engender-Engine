@@ -13,9 +13,57 @@ import type { MutationDimension } from './types';
 
 const GENRES = ['darkTrap', 'ukDrill', 'phonk', 'jerseyClub'] as const;
 const DNA_LIST = ['pressure', 'hypnotic', 'chaotic', 'ominous', 'paranoid', 'unstable', 'cinematic', 'emptyRoom'] as const;
-const SCALES = ['harmonicMinor', 'phrygian', 'phrygianDominant', 'aeolian'] as const;
+const SCALES = [
+  // Major family (FL Mobile order)
+  'majorBebop', 'majorBulgarian', 'majorPentatonic', 'majorPersian', 'majorPolymode',
+  'lydian', 'mixolydian', 'phrygianDominant',
+  // Minor family
+  'harmonicMinor', 'minorHungarian', 'minorMelodic', 'minorNatural', 'minorNeapolitan',
+  'minorPentatonic', 'minorPolymode', 'minorRomanian',
+  // Modes
+  'dorian', 'phrygian', 'aeolian', 'locrian',
+  // World / special
+  'chromatic', 'arabic', 'blues', 'diminished', 'dominantBebop',
+  'egyptian', 'enigmatic', 'hirajoshi', 'iwato', 'japaneseInsen', 'locrianSuper',
+] as const;
 
-const SCALE_LABELS: Record<string, string> = { harmonicMinor: 'HARMONIC MINOR', phrygian: 'PHRYGIAN', phrygianDominant: 'PHRYGIAN DOMINANT', aeolian: 'AEOLIAN' };
+const SCALE_LABELS: Record<string, string> = {
+  // Existing
+  harmonicMinor:    'HARMONIC MINOR',
+  phrygian:         'PHRYGIAN',
+  phrygianDominant: 'PHRYGIAN DOMINANT',
+  aeolian:          'AEOLIAN',
+  // Major family
+  majorBebop:       'MAJOR BEBOP',
+  majorBulgarian:   'MAJOR BULGARIAN',
+  majorPentatonic:  'MAJOR PENTATONIC',
+  majorPersian:     'MAJOR PERSIAN',
+  majorPolymode:    'MAJOR POLYMODE',
+  lydian:           'LYDIAN',
+  mixolydian:       'MIXOLYDIAN',
+  // Minor family
+  minorHungarian:   'MINOR HUNGARIAN',
+  minorMelodic:     'MINOR MELODIC',
+  minorNatural:     'MINOR NATURAL',
+  minorNeapolitan:  'MINOR NEAPOLITAN',
+  minorPentatonic:  'MINOR PENTATONIC',
+  minorPolymode:    'MINOR POLYMODE',
+  minorRomanian:    'MINOR ROMANIAN',
+  dorian:           'DORIAN',
+  locrian:          'LOCRIAN',
+  // World / special
+  chromatic:        'CHROMATIC',
+  arabic:           'ARABIC',
+  blues:            'BLUES',
+  diminished:       'DIMINISHED',
+  dominantBebop:    'DOMINANT BEBOP',
+  egyptian:         'EGYPTIAN',
+  enigmatic:        'ENIGMATIC',
+  hirajoshi:        'HIRAJOSHI',
+  iwato:            'IWATO',
+  japaneseInsen:    'JAPANESE INSEN',
+  locrianSuper:     'LOCRIAN SUPER',
+};
 const GENRE_LABELS: Record<string, string> = { darkTrap: 'DARK TRAP', ukDrill: 'UK DRILL', phonk: 'PHONK', jerseyClub: 'JERSEY CLUB' };
 const DNA_LABELS: Record<string, string> = { pressure: 'PRESSURE', hypnotic: 'HYPNOTIC', chaotic: 'CHAOTIC', ominous: 'OMINOUS', paranoid: 'PARANOID', unstable: 'UNSTABLE', cinematic: 'CINEMATIC', emptyRoom: 'EMPTY ROOM' };
 

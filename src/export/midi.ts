@@ -17,12 +17,12 @@ export function buildMidiTrack(events: MidiEvent[], trackName: string, bpm: numb
   const sorted = [...events].sort((a, b) => a.position - b.position || a.pitch - b.pitch);
 
   for (const e of sorted) {
-    track.addNote({
+    track.addEvent(new MidiWriter.NoteEvent({
       pitch: e.pitch,
       duration: ticksToMidiDuration(Math.max(1, e.duration)),
       startTick: Math.round(e.position * TICKS_PER_16TH),
       velocity: Math.max(1, Math.min(100, Math.round((e.velocity / 127) * 100))),
-    });
+    }));
   }
 
   return trackToBytes(track);
@@ -41,13 +41,13 @@ export function buildDrumTrack(events: DrumEvent[], bpm: number): Uint8Array {
   const sorted = [...events].sort((a, b) => a.position - b.position);
 
   for (const e of sorted) {
-    track.addNote({
+    track.addEvent(new MidiWriter.NoteEvent({
       pitch: e.pitch,
-      duration: '32',  // short percussive hit (32nd note)
+      duration: '32',
       startTick: Math.round(e.position * TICKS_PER_16TH),
       velocity: Math.max(1, Math.min(100, Math.round((e.velocity / 127) * 100))),
-      channel: 10,     // General MIDI drum channel (1-indexed)
-    } as never);
+      channel: 10,
+    }));
   }
 
   return trackToBytes(track);

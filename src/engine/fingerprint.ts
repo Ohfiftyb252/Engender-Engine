@@ -1,7 +1,8 @@
 import type { DrumEvent, EngineState, MidiEvent } from '../types';
 
-export const ENGINE_VERSION = '1.0.0';
-export const RENDER_VERSION = '1.0.0';
+export const ENGINE_VERSION = '0.2.0';
+export const RENDER_VERSION = '0.2.0';
+export const APP_VERSION = '0.2.0';
 
 const CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 

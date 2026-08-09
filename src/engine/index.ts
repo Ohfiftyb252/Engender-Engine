@@ -1,4 +1,4 @@
-import type { DrumPattern, EngineState, GeneratedPack, MutationTarget } from '../types';
+import type { DrumPattern, EngineState, GeneratedPack, MutationTarget, MutationDimension } from '../types';
 import { createSeedBranches, mulberry32 } from './prng';
 import { getDNA } from './dna';
 import { getGenre } from './genre';
@@ -7,7 +7,7 @@ import { generateMelody } from './melody';
 import { generateBass } from './bass';
 import { generateDrums } from './drums';
 import { applyPocketProtection } from './pocket';
-import { applyMutation } from './mutation';
+import { applyMutation, applyDimensionMutation } from './mutation';
 import { generateFingerprint } from './fingerprint';
 import { computeTelemetry } from './telemetry';
 import { humanizeEvents } from './humanize';
@@ -61,4 +61,12 @@ export function mutateVoice(currentPack: GeneratedPack, target: MutationTarget):
 
 export function recallFromSeed(state: EngineState): GeneratedPack {
   return runEngine(state);
+}
+
+export function mutateVoiceWithDimension(
+  currentPack: GeneratedPack,
+  target: MutationTarget,
+  dimension: MutationDimension,
+): GeneratedPack {
+  return runEngine(applyDimensionMutation(currentPack.state, target, dimension));
 }

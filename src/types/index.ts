@@ -14,9 +14,41 @@ export type ScaleType =
   | 'harmonicMinor'
   | 'phrygian'
   | 'phrygianDominant'
-  | 'aeolian';
+  | 'aeolian'
+  // Major family
+  | 'majorBebop'
+  | 'majorBulgarian'
+  | 'majorPentatonic'
+  | 'majorPersian'
+  | 'majorPolymode'
+  | 'lydian'
+  | 'mixolydian'
+  // Minor family
+  | 'minorHungarian'
+  | 'minorMelodic'
+  | 'minorNatural'
+  | 'minorNeapolitan'
+  | 'minorPentatonic'
+  | 'minorPolymode'
+  | 'minorRomanian'
+  | 'dorian'
+  | 'locrian'
+  // World / special
+  | 'chromatic'
+  | 'arabic'
+  | 'blues'
+  | 'diminished'
+  | 'dominantBebop'
+  | 'egyptian'
+  | 'enigmatic'
+  | 'hirajoshi'
+  | 'iwato'
+  | 'japaneseInsen'
+  | 'locrianSuper';
 
 export type MutationTarget = 'melody' | 'bass' | 'chords' | 'drums';
+
+export type MutationDimension = 'groove' | 'velocity' | 'rhythm' | 'density' | 'humanization';
 
 export type DrumLane = 'kick' | 'snare' | 'clap' | 'hat' | 'openHat';
 
@@ -72,6 +104,17 @@ export interface TelemetryScores {
   bounce: number;
   pocket: number;
   darkness: number;
+  originality: number;
+  tension: number;
+  movement: number;
+  simplicity: number;
+}
+
+export interface RepairAction {
+  lane: 'chords' | 'bass' | 'melody' | 'drums';
+  issue: string;
+  applied: boolean;
+  timestamp: number;
 }
 
 export interface MutationNode {
@@ -80,6 +123,16 @@ export interface MutationNode {
   seed: number;
   depth: number;
   parentId: string | null;
+}
+
+export interface MutationHistoryEntry {
+  id: string;
+  target: MutationTarget;
+  dimension: MutationDimension;
+  seed: number;
+  depth: number;
+  parentId: string | null;
+  timestamp: number;
 }
 
 export interface EngineState {
@@ -109,15 +162,20 @@ export interface GeneratedPack {
   fingerprint: string;
   scores: TelemetryScores;
   state: EngineState;
+  repairWarnings?: string[];
+  repairActions?: RepairAction[];
 }
 
 export interface Snapshot {
   id: string;
+  parentId?: string | null;
   label: string;
   timestamp: number;
   state: EngineState;
   scores: TelemetryScores;
   fingerprint: string;
+  repairWarnings?: string[];
+  mutationHistory?: MutationHistoryEntry[];
 }
 
 export interface Step {

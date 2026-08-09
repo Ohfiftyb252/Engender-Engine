@@ -1,19 +1,69 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { EnginePlayer, bounceToWav, renderToWav, wavFilename } from './audio/player';
+import { EnginePlayer, bounceToWav, renderToWav, renderMelodyStem, wavFilename } from './audio/player';
 import type { EngineState, GeneratedPack, MutationTarget, Snapshot, PackValidationResult, BeatPattern, PadId } from './types';
-import { generateFresh, mutateVoice, recallFromSeed } from './engine/index';
+import { generateFresh, mutateVoice, recallFromSeed, mutateVoiceWithDimension } from './engine/index';
 import { measureSimilarity } from './engine/cloneShield';
-import { validatePocketPack, repairWeakLanes } from './engine/validatePack';
+import { validatePocketPack, repairWeakLanes, repairLane } from './engine/validatePack';
 import { buildZip, downloadZip } from './export/zip';
-import { loadSnapshots, saveSnapshot, deleteSnapshot } from './storage/snapshots';
+import { loadSnapshots, saveSnapshot, deleteSnapshot, duplicateSnapshot, branchFromSnapshot } from './storage/snapshots';
 import { NOTE_NAMES, validateScaleNotes } from './engine/scale';
+import { APP_VERSION } from './engine/fingerprint';
 import { BeatMaker, packToBeatPattern, emptyPattern } from './components/BeatMaker';
+import type { MutationDimension } from './types';
 
 const GENRES = ['darkTrap', 'ukDrill', 'phonk', 'jerseyClub'] as const;
 const DNA_LIST = ['pressure', 'hypnotic', 'chaotic', 'ominous', 'paranoid', 'unstable', 'cinematic', 'emptyRoom'] as const;
-const SCALES = ['harmonicMinor', 'phrygian', 'phrygianDominant', 'aeolian'] as const;
+const SCALES = [
+  // Major family (FL Mobile order)
+  'majorBebop', 'majorBulgarian', 'majorPentatonic', 'majorPersian', 'majorPolymode',
+  'lydian', 'mixolydian', 'phrygianDominant',
+  // Minor family
+  'harmonicMinor', 'minorHungarian', 'minorMelodic', 'minorNatural', 'minorNeapolitan',
+  'minorPentatonic', 'minorPolymode', 'minorRomanian',
+  // Modes
+  'dorian', 'phrygian', 'aeolian', 'locrian',
+  // World / special
+  'chromatic', 'arabic', 'blues', 'diminished', 'dominantBebop',
+  'egyptian', 'enigmatic', 'hirajoshi', 'iwato', 'japaneseInsen', 'locrianSuper',
+] as const;
 
-const SCALE_LABELS: Record<string, string> = { harmonicMinor: 'HARMONIC MINOR', phrygian: 'PHRYGIAN', phrygianDominant: 'PHRYGIAN DOMINANT', aeolian: 'AEOLIAN' };
+const SCALE_LABELS: Record<string, string> = {
+  // Existing
+  harmonicMinor:    'HARMONIC MINOR',
+  phrygian:         'PHRYGIAN',
+  phrygianDominant: 'PHRYGIAN DOMINANT',
+  aeolian:          'AEOLIAN',
+  // Major family
+  majorBebop:       'MAJOR BEBOP',
+  majorBulgarian:   'MAJOR BULGARIAN',
+  majorPentatonic:  'MAJOR PENTATONIC',
+  majorPersian:     'MAJOR PERSIAN',
+  majorPolymode:    'MAJOR POLYMODE',
+  lydian:           'LYDIAN',
+  mixolydian:       'MIXOLYDIAN',
+  // Minor family
+  minorHungarian:   'MINOR HUNGARIAN',
+  minorMelodic:     'MINOR MELODIC',
+  minorNatural:     'MINOR NATURAL',
+  minorNeapolitan:  'MINOR NEAPOLITAN',
+  minorPentatonic:  'MINOR PENTATONIC',
+  minorPolymode:    'MINOR POLYMODE',
+  minorRomanian:    'MINOR ROMANIAN',
+  dorian:           'DORIAN',
+  locrian:          'LOCRIAN',
+  // World / special
+  chromatic:        'CHROMATIC',
+  arabic:           'ARABIC',
+  blues:            'BLUES',
+  diminished:       'DIMINISHED',
+  dominantBebop:    'DOMINANT BEBOP',
+  egyptian:         'EGYPTIAN',
+  enigmatic:        'ENIGMATIC',
+  hirajoshi:        'HIRAJOSHI',
+  iwato:            'IWATO',
+  japaneseInsen:    'JAPANESE INSEN',
+  locrianSuper:     'LOCRIAN SUPER',
+};
 const GENRE_LABELS: Record<string, string> = { darkTrap: 'DARK TRAP', ukDrill: 'UK DRILL', phonk: 'PHONK', jerseyClub: 'JERSEY CLUB' };
 const DNA_LABELS: Record<string, string> = { pressure: 'PRESSURE', hypnotic: 'HYPNOTIC', chaotic: 'CHAOTIC', ominous: 'OMINOUS', paranoid: 'PARANOID', unstable: 'UNSTABLE', cinematic: 'CINEMATIC', emptyRoom: 'EMPTY ROOM' };
 
@@ -37,6 +87,7 @@ export default function App() {
   const [repairing, setRepairing] = useState(false);
   const [validation, setValidation] = useState<PackValidationResult | null>(null);
   const [snapshots, setSnapshots] = useState<Snapshot[]>(loadSnapshots);
+  const [repairReport, setRepairReport] = useState<string[]>([]);
   const { toast, showToast } = useToast();
   const [genre, setGenre] = useState<EngineState['genre']>('darkTrap');
   const [dna, setDna] = useState<EngineState['dna']>('ominous');
@@ -112,7 +163,10 @@ export default function App() {
         player.play();
         setPlaying(true);
       } catch (e) {
-        showToast('AUDIO ERROR', 'error');
+        const msg = e instanceof Error && (e.name === 'NotAllowedError' || e.message.includes('suspended'))
+          ? 'TAP SCREEN TO UNLOCK AUDIO'
+          : 'AUDIO ERROR — TAP TO RETRY';
+        showToast(msg, 'error');
         console.error(e);
       }
       setAudioLoading(false);
@@ -140,6 +194,7 @@ export default function App() {
 
   const handleGenerate = useCallback(() => {
     setGenerating(true);
+    setRepairReport([]);
     setTimeout(() => {
       try {
         const parsedSeed = seedInput ? (parseInt(seedInput, 16) || parseInt(seedInput, 10)) : undefined;
@@ -176,25 +231,67 @@ export default function App() {
     if (!pack || repairing) return;
     setRepairing(true);
     try {
+      const validationBefore = validatePocketPack(pack);
       const repaired = repairWeakLanes(pack);
-      setPrevPack(pack); setPack(repaired);
-      const result = validatePocketPack(repaired);
+      const repairedWithMeta: GeneratedPack = { ...repaired, repairWarnings: validationBefore.issues };
+      setPrevPack(pack); setPack(repairedWithMeta);
+      const result = validatePocketPack(repairedWithMeta);
       setValidation(result);
+      setRepairReport(validationBefore.weakLanes.map(l => l.toUpperCase()));
       showToast(result.valid ? `REPAIRED ⟶ ${repaired.fingerprint}` : 'REPAIR PARTIAL — STILL WEAK', result.valid ? 'success' : 'error');
     } catch (e) { showToast('REPAIR FAILED', 'error'); console.error(e); }
     setRepairing(false);
   }, [pack, repairing, showToast]);
 
+  const handleRepairLane = useCallback((lane: 'chords' | 'bass' | 'melody' | 'drums') => {
+    if (!pack || repairing) return;
+    setRepairing(true);
+    try {
+      const issuesBefore = validatePocketPack(pack).issues;
+      const repaired = repairLane(pack, lane);
+      const repairedWithMeta: GeneratedPack = { ...repaired, repairWarnings: issuesBefore };
+      setPrevPack(pack); setPack(repairedWithMeta);
+      const result = validatePocketPack(repairedWithMeta);
+      setValidation(result);
+      setRepairReport([lane.toUpperCase()]);
+      showToast(`REPAIRED ${lane.toUpperCase()} ⟶ ${repaired.fingerprint}`, 'success');
+    } catch (e) { showToast('REPAIR FAILED', 'error'); }
+    setRepairing(false);
+  }, [pack, repairing, showToast]);
+
+  const handleMutateWithDimension = useCallback((target: MutationTarget, dimension: MutationDimension) => {
+    if (!pack) return;
+    const mutated = mutateVoiceWithDimension(pack, target, dimension);
+    setPrevPack(pack); setPack(mutated);
+    setValidation(validatePocketPack(mutated));
+    showToast(`${dimension.toUpperCase()} MUTATED ⟶ ${mutated.fingerprint}`);
+  }, [pack, showToast]);
+
+  const handleUndo = useCallback(() => {
+    if (!prevPack) return;
+    setPack(prevPack); setPrevPack(null);
+    setValidation(validatePocketPack(prevPack));
+    setRepairReport([]);
+    showToast('UNDONE');
+  }, [prevPack, showToast]);
+
   const handleExport = useCallback(async () => {
     if (!pack || exporting) return;
     setExporting(true);
     try {
-      const previewWavBuf = await renderToWav(pack, 1);
-      const previewWav = new Uint8Array(previewWavBuf);
-      const blob = await buildZip(pack, loopMode, previewWav);
-      downloadZip(blob, pack.fingerprint, pack.state.bpm, pack.state.bars ?? 4);
+      const [previewWavBuf, melodyStemBuf] = await Promise.all([
+        renderToWav(pack, loopMode),
+        renderMelodyStem(pack),
+      ]);
+      const previewWav   = new Uint8Array(previewWavBuf);
+      const melodyStemWav = new Uint8Array(melodyStemBuf);
+      const blob = await buildZip(pack, loopMode, previewWav, melodyStemWav, pack.repairWarnings ?? []);
+      downloadZip(blob, pack.fingerprint, pack.state.bpm, NOTE_NAMES[pack.state.key % 12], pack.state.bars ?? 4);
       showToast(`POCKET PACK READY ⟶ ${pack.fingerprint}`);
-    } catch (e) { showToast('EXPORT FAILED', 'error'); console.error(e); }
+    } catch (e) {
+      showToast(e instanceof Error && e.message ? `ZIP FAILED: ${e.message.slice(0, 40)}` : 'ZIP EXPORT FAILED', 'error');
+      console.error(e);
+    }
     setExporting(false);
   }, [pack, exporting, loopMode, showToast]);
 
@@ -204,7 +301,7 @@ export default function App() {
     try {
       await bounceToWav(pack, loopMode);
       showToast(`BOUNCED EngenderEngine_${pack.fingerprint}_${pack.state.bpm}BPM_${loopMode}x.wav`);
-    } catch (e) { showToast('BOUNCE FAILED', 'error'); console.error(e); }
+    } catch (e) { showToast('WAV BOUNCE FAILED — CHECK AUDIO CONTEXT', 'error'); console.error(e); }
     setBouncing(false);
   }, [pack, bouncing, loopMode, showToast]);
 
@@ -218,6 +315,7 @@ export default function App() {
     const recalled = recallFromSeed(snap.state);
     setPrevPack(pack); setPack(recalled);
     setValidation(validatePocketPack(recalled));
+    setRepairReport([]);
     setGenre(snap.state.genre); setDna(snap.state.dna); setKey(snap.state.key);
     setScale(snap.state.scale); setBpm(snap.state.bpm); setBars(snap.state.bars ?? 4);
     setSeedInput(snap.state.seed.toString(16).toUpperCase());
@@ -227,6 +325,21 @@ export default function App() {
   const handleDeleteSnapshot = useCallback((id: string, e: React.MouseEvent) => {
     e.stopPropagation(); deleteSnapshot(id); setSnapshots(loadSnapshots());
   }, []);
+
+  const handleDuplicateSnapshot = useCallback((id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    duplicateSnapshot(id);
+    setSnapshots(loadSnapshots());
+    showToast('SNAPSHOT DUPLICATED');
+  }, [showToast]);
+
+  const handleBranchFromSnapshot = useCallback((snap: Snapshot, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!pack) return;
+    branchFromSnapshot(snap.id, pack.state, pack.scores, pack.fingerprint);
+    setSnapshots(loadSnapshots());
+    showToast(`BRANCHED FROM ${snap.fingerprint}`);
+  }, [pack, showToast]);
 
   const handlePadTrigger = useCallback(async (padId: PadId, velocity: number, pitch: number) => {
     if (!playerRef.current.initialized) {
@@ -252,9 +365,12 @@ export default function App() {
     <div className="app">
       {toast && <div className={`toast visible ${toast.type}`}>{toast.msg}</div>}
       <header className="header">
-        <div className="header-logo">ENGENDER ENGINE™</div>
+        <div className="header-logo">ENGENDER ENGINE™<span className="header-version"> v{APP_VERSION}</span></div>
         <div className="header-fp"><span>ID</span><span className="fp-badge">{fingerprint}</span></div>
       </header>
+      {!pack && (
+        <div className="app-tagline">Generate beat DNA. Repair weak lanes. Export MIDI + WAV.</div>
+      )}
       <div className="section">
         <div className="section-label">ENGINE PARAMETERS</div>
         <div className="controls-grid">
@@ -341,11 +457,11 @@ export default function App() {
         <div className="section">
           <div className="section-label">TELEMETRY</div>
           <div className="telemetry-grid">
-            {(['bounce', 'pocket', 'darkness'] as const).map(k => (
+            {(['bounce', 'pocket', 'darkness', 'originality', 'tension', 'movement', 'simplicity'] as const).map(k => (
               <div key={k} className="telemetry-card">
                 <div className="tel-name">{k.toUpperCase()}</div>
-                <div className={`tel-value ${k}`}>{scores[k]}</div>
-                <div className="tel-bar"><div className={`tel-bar-fill ${k}`} style={{ width: `${scores[k]}%` }} /></div>
+                <div className={`tel-value ${k}`}>{scores[k] ?? 0}</div>
+                <div className="tel-bar"><div className={`tel-bar-fill ${k}`} style={{ width: `${scores[k] ?? 0}%` }} /></div>
               </div>
             ))}
           </div>
@@ -367,15 +483,27 @@ export default function App() {
                 </ul>
               )}
               {!validation.valid && (
-                <button className="btn-repair" onClick={handleRepair} disabled={repairing}>
-                  {repairing ? '⧗ REPAIRING…' : '⟳ REPAIR WEAK LANES'}
-                </button>
+                <div className="repair-btns">
+                  <button className="btn-repair" onClick={handleRepair} disabled={repairing}>
+                    {repairing ? '⧗ REPAIRING…' : '⟳ REPAIR WEAK LANES'}
+                  </button>
+                  {validation.weakLanes.map(lane => (
+                    <button key={lane} className={`btn-repair-lane ${lane}`} onClick={() => handleRepairLane(lane)} disabled={repairing}>
+                      FIX {lane.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
               )}
+            </div>
+          )}
+          {repairReport.length > 0 && (
+            <div className="repair-report">
+              ✓ REPAIRED: {repairReport.join(', ')}
             </div>
           )}
         </div>
       )}
-      {pack && (
+      {pack ? (
         <div className="section">
           <div className="section-label">MUTATION ENGINE</div>
           <div className="mutation-btns">
@@ -383,13 +511,30 @@ export default function App() {
               <button key={t} className={`btn-mutate ${t}`} onClick={() => handleMutate(t)}>MUTATE {t.toUpperCase()}</button>
             ))}
           </div>
-          {tree.length > 0 && (
+          <div className="mutation-btns mutation-dim-row">
+            <button className="btn-mutate groove" onClick={() => handleMutateWithDimension('drums', 'groove')}>MUTATE GROOVE</button>
+            <button className="btn-mutate velocity" onClick={() => handleMutateWithDimension('melody', 'velocity')}>MUTATE VELOCITY</button>
+            <button className="btn-mutate rhythm" onClick={() => handleMutateWithDimension('melody', 'rhythm')}>MUTATE RHYTHM</button>
+            <button className="btn-mutate density" onClick={() => handleMutateWithDimension('chords', 'density')}>MUTATE DENSITY</button>
+            <button className="btn-mutate humanization" onClick={() => handleMutateWithDimension('bass', 'humanization')}>MUTATE HUMAN.</button>
+          </div>
+          {prevPack && (
+            <button className="btn-undo" onClick={handleUndo}>↩ UNDO LAST MUTATION</button>
+          )}
+          {tree.length > 0 ? (
             <div className="mutation-tree">
               {tree.map(node => (
                 <span key={node.id} className={`mutation-node ${node.target}${node.id === pack.state.activeNodeId ? ' active' : ''}`}>{node.id}</span>
               ))}
             </div>
+          ) : (
+            <div className="empty-state empty-state-sm">NO MUTATIONS YET — HIT MUTATE TO FORK</div>
           )}
+        </div>
+      ) : (
+        <div className="section">
+          <div className="section-label">MUTATION ENGINE</div>
+          <div className="empty-state">GENERATE A PACK TO UNLOCK MUTATIONS</div>
         </div>
       )}
       <BeatMaker
@@ -420,7 +565,11 @@ export default function App() {
                 <span className="snap-score p">P{snap.scores.pocket}</span>
                 <span className="snap-score d">D{snap.scores.darkness}</span>
               </div>
-              <button className="snap-delete" onClick={e => handleDeleteSnapshot(snap.id, e)} title="Delete">×</button>
+              <div className="snap-actions">
+                <button className="snap-duplicate" onClick={e => handleDuplicateSnapshot(snap.id, e)} title="Duplicate">⧉</button>
+                <button className="snap-branch" onClick={e => handleBranchFromSnapshot(snap, e)} title="Branch from here" disabled={!pack}>⑂</button>
+                <button className="snap-delete" onClick={e => handleDeleteSnapshot(snap.id, e)} title="Delete">×</button>
+              </div>
             </div>
           ))}
         </div>
@@ -448,7 +597,7 @@ export default function App() {
                 disabled={exporting || isStale}
               >
                 <span>{exporting ? '⧗ BUILDING ZIP…' : '⤓ DOWNLOAD POCKET PACK'}</span>
-                <span className="export-sub">4 MIDI + WAV + MANIFEST</span>
+                <span className="export-sub">10 FILES: 4 MIDI + 5 JSON + WAV</span>
               </button>
               <button
                 className={`btn-bounce${bouncing ? ' bouncing' : ''}`}

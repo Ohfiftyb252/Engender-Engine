@@ -11,8 +11,9 @@ export function generateChords(rng: () => number, dna: DNAProfile, genre: GenreP
   const scalePitches = buildScalePitches(key, scale, CHORD_MIN, CHORD_MAX);
   if (scalePitches.length === 0) return [];
 
-  // At least 4 chord hits — enough to feel like a progression
-  const targetChords = Math.max(4, Math.round(genre.chordDensity * (1 - dna.rhythmGapBias * 0.3)));
+  // Scale chord count proportionally to bar length (default is 64 ticks = 4 bars)
+  const scaleFactor = totalTicks / 64;
+  const targetChords = Math.max(4, Math.round(genre.chordDensity * (1 - dna.rhythmGapBias * 0.3) * scaleFactor));
   const grid = buildRhythmGrid(rng, dna, genre, targetChords, false, totalTicks);
   const events: MidiEvent[] = [];
   const [velMin, velMax] = genre.velocityRange;

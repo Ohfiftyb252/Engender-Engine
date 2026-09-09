@@ -13,8 +13,9 @@ export function generateMelody(rng: () => number, dna: DNAProfile, genre: GenreP
   for (let p = MEL_MIN; p <= MEL_MAX; p++) allPitches.push(p);
   if (scalePitches.length === 0) return [];
 
-  // Enough notes to make a phrase — at least 6, scale by density
-  const targetNotes = Math.max(6, Math.round(genre.melodyDensity * (1 - dna.rhythmGapBias * 0.4)));
+  // Scale note count proportionally to bar length (default is 64 ticks = 4 bars)
+  const scaleFactor = totalTicks / 64;
+  const targetNotes = Math.max(6, Math.round(genre.melodyDensity * (1 - dna.rhythmGapBias * 0.4) * scaleFactor));
   const grid = buildRhythmGrid(rng, dna, genre, targetNotes, true, totalTicks);
   const events: MidiEvent[] = [];
   const [velMin, velMax] = genre.velocityRange;

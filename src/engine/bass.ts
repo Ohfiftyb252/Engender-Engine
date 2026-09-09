@@ -10,7 +10,8 @@ export function generateBass(rng: () => number, dna: DNAProfile, genre: GenrePro
   const scalePitches = buildScalePitches(key, scale, BASS_MIN, BASS_MAX);
   if (scalePitches.length === 0) return [];
 
-  const targetNotes = Math.round(8 * dna.bassDensity * (1 - dna.rhythmGapBias * 0.3));
+  const scaleFactor = totalTicks / 64;
+  const targetNotes = Math.round(8 * dna.bassDensity * (1 - dna.rhythmGapBias * 0.3) * scaleFactor);
   const grid = buildRhythmGrid(rng, dna, genre, Math.max(4, targetNotes), genre.bassRollChance > 0.4, totalTicks);
   const [velMin, velMax] = genre.velocityRange;
   const barStarts = Array.from({ length: bars }, (_, i) => i * 16);

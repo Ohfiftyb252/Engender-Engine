@@ -11,9 +11,9 @@ export function generateChords(rng: () => number, dna: DNAProfile, genre: GenreP
   const scalePitches = buildScalePitches(key, scale, CHORD_MIN, CHORD_MAX);
   if (scalePitches.length === 0) return [];
 
-  // Scale chord count proportionally to bar length (default is 64 ticks = 4 bars)
-  const scaleFactor = totalTicks / 64;
-  const targetChords = Math.max(4, Math.round(genre.chordDensity * (1 - dna.rhythmGapBias * 0.3) * scaleFactor));
+  // density = chords per bar; scale to actual bar count
+  const bars = totalTicks / 16;
+  const targetChords = Math.max(bars * 2, Math.round(genre.chordDensity * bars * (1 - dna.rhythmGapBias * 0.3)));
   const grid = buildRhythmGrid(rng, dna, genre, targetChords, false, totalTicks);
   const events: MidiEvent[] = [];
   const [velMin, velMax] = genre.velocityRange;

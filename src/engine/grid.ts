@@ -51,7 +51,7 @@ export function buildRhythmGrid(rng: () => number, dna: DNAProfile, genre: Genre
   let attempts = 0;
   const minGap = Math.max(1, Math.round(dna.rhythmGapBias * 3)); // 1–2 ticks min gap
 
-  while (slots.filter(s => s.active).length < targetNotes && attempts < 400) {
+  while (slots.filter(s => s.active).length < targetNotes && attempts < targetNotes * 20 + 400) {
     attempts++;
     const useTriplet = allowTriplets && rng() < genre.tripletChance * dna.tripletProbability * 2;
     let pos: number;

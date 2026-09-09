@@ -8,7 +8,7 @@ import { buildZip, downloadZip } from './export/zip';
 import { loadSnapshots, saveSnapshot, deleteSnapshot, duplicateSnapshot, branchFromSnapshot } from './storage/snapshots';
 import { NOTE_NAMES, validateScaleNotes } from './engine/scale';
 import { APP_VERSION } from './engine/fingerprint';
-import { BeatMaker, packToBeatPattern, emptyPattern } from './components/BeatMaker';
+import { BeatMaker, packToBeatPattern, emptyAllPatterns, multiPatternsToDrumEvents } from './components/BeatMaker';
 import type { MutationDimension } from './types';
 
 const GENRES = ['darkTrap', 'ukDrill', 'phonk', 'jerseyClub'] as const;
@@ -67,6 +67,15 @@ const SCALE_LABELS: Record<string, string> = {
 const GENRE_LABELS: Record<string, string> = { darkTrap: 'DARK TRAP', ukDrill: 'UK DRILL', phonk: 'PHONK', jerseyClub: 'JERSEY CLUB' };
 const DNA_LABELS: Record<string, string> = { pressure: 'PRESSURE', hypnotic: 'HYPNOTIC', chaotic: 'CHAOTIC', ominous: 'OMINOUS', paranoid: 'PARANOID', unstable: 'UNSTABLE', cinematic: 'CINEMATIC', emptyRoom: 'EMPTY ROOM' };
 
+// Seed parsing: hex if string contains hex digits (A-F) or 0x prefix, else decimal.
+function parseSeed(raw: string): number {
+  const s = raw.trim();
+  if (/^0x/i.test(s) || /[a-fA-F]/.test(s)) {
+    return parseInt(s.replace(/^0x/i, ''), 16);
+  }
+  return parseInt(s, 10);
+}
+
 function useToast() {
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' | '' } | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -101,7 +110,8 @@ export default function App() {
   const [audioLoading, setAudioLoading] = useState(false);
   const [mutedVoices, setMutedVoices] = useState<Set<MutationTarget>>(new Set());
   const [isStale, setIsStale] = useState(false);
-  const [beatPattern, setBeatPattern] = useState<BeatPattern>(emptyPattern());
+  // beatPatterns mirrors BeatMaker's internal state for writes back to pack.drums
+  const beatPatternsRef = useRef<Record<import('./types').PatternId, BeatPattern>>(emptyAllPatterns());
   const [currentStep, setCurrentStep] = useState(-1);
   const [swing, setSwing] = useState(0);
   const playerRef = useRef<EnginePlayer>(new EnginePlayer());
@@ -132,9 +142,7 @@ export default function App() {
   useEffect(() => {
     if (!pack) { setIsStale(false); return; }
     const rawSeed = seedInput.trim();
-    const parsedSeed = rawSeed
-      ? (parseInt(rawSeed, 16) || parseInt(rawSeed, 10))
-      : undefined;
+    const parsedSeed = rawSeed ? parseSeed(rawSeed) : undefined;
     const seedDiffers = parsedSeed !== pack.state.seed;
     const stale =
       genre !== pack.state.genre ||
@@ -158,8 +166,7 @@ export default function App() {
       setAudioLoading(true);
       setMutedVoices(new Set());
       try {
-        await player.load(pack);
-        await player.loadBeatPattern(beatPattern, pack.state.bpm, pack.state.bars ?? 4, swing);
+        await player.load(pack, swing);
         player.play();
         setPlaying(true);
       } catch (e) {
@@ -171,7 +178,7 @@ export default function App() {
       }
       setAudioLoading(false);
     }
-  }, [playing, pack, beatPattern, swing, showToast]);
+  }, [playing, pack, swing, showToast]);
 
   const handleMuteToggle = useCallback((voice: MutationTarget) => {
     playerRef.current.toggleMute(voice);
@@ -197,7 +204,7 @@ export default function App() {
     setRepairReport([]);
     setTimeout(() => {
       try {
-        const parsedSeed = seedInput ? (parseInt(seedInput, 16) || parseInt(seedInput, 10)) : undefined;
+        const parsedSeed = seedInput ? parseSeed(seedInput) : undefined;
         const newPack = generateFresh({ genre, dna, key, scale, bpm, bars, seed: parsedSeed });
         if (prevPack) {
           const sim = measureSimilarity(prevPack, newPack);
@@ -206,14 +213,15 @@ export default function App() {
             const regen = generateFresh({ genre, dna, key, scale, bpm, bars });
             setSeedInput(regen.state.seed.toString(16).toUpperCase());
             setValidation(validatePocketPack(regen));
-            setBeatPattern(packToBeatPattern(regen));
-            setPrevPack(newPack); setPack(regen); setGenerating(false); return;
+            beatPatternsRef.current = (packToBeatPattern(regen));
+            // Keep prevPack as the accepted pack, not the rejected clone candidate
+            setPrevPack(pack); setPack(regen); setGenerating(false); return;
           }
         }
         setSeedInput(newPack.state.seed.toString(16).toUpperCase());
         setPrevPack(pack); setPack(newPack);
         setValidation(validatePocketPack(newPack));
-        setBeatPattern(packToBeatPattern(newPack));
+        beatPatternsRef.current = (packToBeatPattern(newPack));
       } catch (e) { showToast('ENGINE ERROR', 'error'); console.error(e); }
       setGenerating(false);
     }, 10);
@@ -316,6 +324,7 @@ export default function App() {
     setPrevPack(pack); setPack(recalled);
     setValidation(validatePocketPack(recalled));
     setRepairReport([]);
+    beatPatternsRef.current = (packToBeatPattern(recalled));
     setGenre(snap.state.genre); setDna(snap.state.dna); setKey(snap.state.key);
     setScale(snap.state.scale); setBpm(snap.state.bpm); setBars(snap.state.bars ?? 4);
     setSeedInput(snap.state.seed.toString(16).toUpperCase());
@@ -349,12 +358,17 @@ export default function App() {
     playerRef.current.triggerPad(padId, velocity, pitch);
   }, [pack]);
 
-  const handleSwingChange = useCallback(async (v: number) => {
+  const handleSwingChange = useCallback((v: number) => {
     setSwing(v);
-    if (playing && pack) {
-      await playerRef.current.loadBeatPattern(beatPattern, pack.state.bpm, pack.state.bars ?? 4, v);
-    }
-  }, [playing, pack, beatPattern]);
+    playerRef.current.setSwing(v);
+  }, []);
+
+  const handlePatternChange = useCallback((allPatterns: Record<import('./types').PatternId, BeatPattern>) => {
+    beatPatternsRef.current = (allPatterns);
+    if (!pack) return;
+    const newDrumEvents = multiPatternsToDrumEvents(allPatterns, pack.state.bars ?? 4);
+    setPack(prev => prev ? { ...prev, drums: { events: newDrumEvents } } : prev);
+  }, [pack]);
 
   const scores = pack?.scores;
   const fingerprint = pack?.fingerprint ?? '------';
@@ -543,7 +557,7 @@ export default function App() {
         currentStep={currentStep}
         swing={swing}
         onSwingChange={handleSwingChange}
-        onPatternChange={setBeatPattern}
+        onPatternChange={handlePatternChange}
         onPadTrigger={handlePadTrigger}
       />
       <div className="section">

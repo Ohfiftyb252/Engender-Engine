@@ -26,11 +26,15 @@ export function randPick<T>(rng: () => number, arr: T[]): T {
 
 export function createSeedBranches(masterSeed: number) {
   return {
-    rhythm:   mulberry32(masterSeed ^ 0x1a2b3c4d),
-    chords:   mulberry32(masterSeed ^ 0x5e6f7a8b),
-    melody:   mulberry32(masterSeed ^ 0x9c0d1e2f),
-    bass:     mulberry32(masterSeed ^ 0x3a4b5c6d),
-    humanize: mulberry32(masterSeed ^ 0x7e8f9a0b),
-    drums:    mulberry32(masterSeed ^ 0xc1d2e3f4),
+    rhythm:          mulberry32(masterSeed ^ 0x1a2b3c4d),
+    chords:          mulberry32(masterSeed ^ 0x5e6f7a8b),
+    melody:          mulberry32(masterSeed ^ 0x9c0d1e2f),
+    bass:            mulberry32(masterSeed ^ 0x3a4b5c6d),
+    // Separate humanize streams per voice — mutating one voice must not
+    // shift the RNG state for another voice's humanization.
+    humanizeChords:  mulberry32(masterSeed ^ 0x7e8f9a0b),
+    humanizeMelody:  mulberry32(masterSeed ^ 0xb1c2d3e4),
+    humanizeBass:    mulberry32(masterSeed ^ 0xf5a6b7c8),
+    drums:           mulberry32(masterSeed ^ 0xc1d2e3f4),
   };
 }

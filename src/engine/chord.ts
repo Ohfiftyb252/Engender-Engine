@@ -10,7 +10,8 @@ export function generateChords(rng: () => number, dna: DNAProfile, genre: GenreP
   const scalePitches = buildScalePitches(key, scale, CHORD_MIN, CHORD_MAX);
   if (scalePitches.length === 0) return [];
 
-  const targetChords = Math.round(genre.chordDensity * 4 * (1 - dna.rhythmGapBias * 0.5));
+  const bars = totalTicks / 16;
+  const targetChords = Math.max(bars * 2, Math.round(genre.chordDensity * bars * (1 - dna.rhythmGapBias * 0.5)));
   const grid = buildRhythmGrid(rng, dna, genre, Math.max(2, targetChords), false, totalTicks);
   const events: MidiEvent[] = [];
   const [velMin, velMax] = genre.velocityRange;

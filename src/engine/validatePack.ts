@@ -187,8 +187,8 @@ export function repairWeakLanes(pack: GeneratedPack): GeneratedPack {
 
   for (const lane of validation.weakLanes) {
     const current = newVoiceSeeds[lane] ?? pack.state.seed;
-    // XOR-shift the seed so a fresh pattern is generated for this lane
-    newVoiceSeeds[lane] = (current ^ 0x6c62272e ^ (validation.weakLanes.length * 0x9e3779b9)) >>> 0;
+    // Additive advance — never reverts to a prior seed value (unlike XOR)
+    newVoiceSeeds[lane] = (current + 0x9e3779b9) >>> 0;
   }
 
   return runEngine({ ...pack.state, voiceSeeds: newVoiceSeeds });
@@ -197,7 +197,7 @@ export function repairWeakLanes(pack: GeneratedPack): GeneratedPack {
 // Exported so App.tsx can call it directly for a targeted re-roll
 export function repairDrumsOnly(pack: GeneratedPack): GeneratedPack {
   const currentSeed = pack.state.voiceSeeds['drums'] ?? pack.state.seed;
-  const newSeed = (currentSeed ^ 0xdeadbeef) >>> 0;
+  const newSeed = (currentSeed + 0x9e3779b9) >>> 0;
   const newEvents = generateDrums(() => {
     let s = newSeed;
     s = (s + 0x6d2b79f5) >>> 0;
@@ -216,7 +216,7 @@ export function repairDrumsOnly(pack: GeneratedPack): GeneratedPack {
 // The caller may record the repair via RepairAction in pack.repairActions.
 export function repairLane(pack: GeneratedPack, lane: RepairAction['lane']): GeneratedPack {
   const current = pack.state.voiceSeeds[lane] ?? pack.state.seed;
-  const newSeed = (current ^ 0x6c62272e ^ 0x9e3779b9) >>> 0;
+  const newSeed = (current + 0x9e3779b9) >>> 0;
   const newVoiceSeeds = { ...pack.state.voiceSeeds, [lane]: newSeed };
   return runEngine({ ...pack.state, voiceSeeds: newVoiceSeeds });
 }

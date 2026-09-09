@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { GeneratedPack, Step, BeatPattern, PadId, PatternId } from '../types';
+import type { DrumEvent, GeneratedPack, Step, BeatPattern, PadId, PatternId } from '../types';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -43,20 +43,29 @@ export function emptyPattern(): BeatPattern {
   };
 }
 
-export function packToBeatPattern(pack: GeneratedPack): BeatPattern {
-  const pattern = emptyPattern();
+export function emptyAllPatterns(): Record<PatternId, BeatPattern> {
+  return { A: emptyPattern(), B: emptyPattern(), C: emptyPattern(), D: emptyPattern() };
+}
 
-  // Drum lanes
+/**
+ * Distribute pack events across four pattern banks (A=bar0, B=bar1, C=bar2, D=bar3).
+ * Events in bar N land in bank PATTERN_IDS[N % 4] at step (position % 16).
+ */
+export function packToBeatPattern(pack: GeneratedPack): Record<PatternId, BeatPattern> {
+  const allPatterns = emptyAllPatterns();
+
   const drumLanes: Array<'kick' | 'snare' | 'clap' | 'hat' | 'openHat'> = [
     'kick', 'snare', 'clap', 'hat', 'openHat',
   ];
   for (const lane of drumLanes) {
     const events = pack.drums.events.filter(e => e.lane === lane);
     for (const e of events) {
+      const barIndex = Math.floor(e.position / 16);
+      const patId = PATTERN_IDS[barIndex % 4];
       const step = Math.round(e.position) % 16;
-      const existing = pattern[lane][step];
+      const existing = allPatterns[patId][lane][step];
       if (!existing.active || e.velocity > existing.velocity) {
-        pattern[lane][step] = {
+        allPatterns[patId][lane][step] = {
           active: true,
           velocity: e.velocity,
           pitch: DRUM_GM[lane] ?? 60,
@@ -65,31 +74,65 @@ export function packToBeatPattern(pack: GeneratedPack): BeatPattern {
     }
   }
 
-  // Bass
   for (const e of pack.bass) {
+    const barIndex = Math.floor(e.position / 16);
+    const patId = PATTERN_IDS[barIndex % 4];
     const step = Math.round(e.position) % 16;
-    if (!pattern.bass[step].active) {
-      pattern.bass[step] = { active: true, velocity: e.velocity, pitch: e.pitch };
+    if (!allPatterns[patId].bass[step].active) {
+      allPatterns[patId].bass[step] = { active: true, velocity: e.velocity, pitch: e.pitch };
     }
   }
 
-  // Melody
   for (const e of pack.melody) {
+    const barIndex = Math.floor(e.position / 16);
+    const patId = PATTERN_IDS[barIndex % 4];
     const step = Math.round(e.position) % 16;
-    if (!pattern.melody[step].active) {
-      pattern.melody[step] = { active: true, velocity: e.velocity, pitch: e.pitch };
+    if (!allPatterns[patId].melody[step].active) {
+      allPatterns[patId].melody[step] = { active: true, velocity: e.velocity, pitch: e.pitch };
     }
   }
 
-  // Chords
   for (const e of pack.chords) {
+    const barIndex = Math.floor(e.position / 16);
+    const patId = PATTERN_IDS[barIndex % 4];
     const step = Math.round(e.position) % 16;
-    if (!pattern.chords[step].active) {
-      pattern.chords[step] = { active: true, velocity: e.velocity, pitch: e.pitch };
+    if (!allPatterns[patId].chords[step].active) {
+      allPatterns[patId].chords[step] = { active: true, velocity: e.velocity, pitch: e.pitch };
     }
   }
 
-  return pattern;
+  return allPatterns;
+}
+
+/**
+ * Convert a multi-bank pattern back to DrumEvents for the canonical pack.
+ * Bank A = bar 0, B = bar 1, C = bar 2, D = bar 3, repeating modulo 4.
+ */
+export function multiPatternsToDrumEvents(patterns: Record<PatternId, BeatPattern>, bars: number): DrumEvent[] {
+  const events: DrumEvent[] = [];
+  const drumLanes: Array<'kick' | 'snare' | 'clap' | 'hat' | 'openHat'> = [
+    'kick', 'snare', 'clap', 'hat', 'openHat',
+  ];
+
+  for (let bar = 0; bar < bars; bar++) {
+    const patId = PATTERN_IDS[bar % 4];
+    const pat = patterns[patId];
+    for (const lane of drumLanes) {
+      for (let step = 0; step < 16; step++) {
+        const s = pat[lane][step];
+        if (s.active) {
+          events.push({
+            position: bar * 16 + step,
+            lane,
+            pitch: DRUM_GM[lane] ?? 60,
+            velocity: s.velocity,
+          });
+        }
+      }
+    }
+  }
+
+  return events.sort((a, b) => a.position - b.position);
 }
 
 // ─── Props ───────────────────────────────────────────────────────────────────
@@ -100,7 +143,7 @@ export interface BeatMakerProps {
   currentStep: number;
   swing: number;
   onSwingChange: (v: number) => void;
-  onPatternChange: (pattern: BeatPattern) => void;
+  onPatternChange: (patterns: Record<PatternId, BeatPattern>) => void;
   onPadTrigger: (padId: PadId, velocity: number, pitch: number) => void;
 }
 
@@ -109,39 +152,26 @@ export interface BeatMakerProps {
 export function BeatMaker(props: BeatMakerProps) {
   const { pack, playing, currentStep, swing, onSwingChange, onPatternChange, onPadTrigger } = props;
 
-  const [patterns, setPatterns] = useState<Record<PatternId, BeatPattern>>({
-    A: emptyPattern(),
-    B: emptyPattern(),
-    C: emptyPattern(),
-    D: emptyPattern(),
-  });
+  const [patterns, setPatterns] = useState<Record<PatternId, BeatPattern>>(emptyAllPatterns);
   const [activePattern, setActivePattern] = useState<PatternId>('A');
   const [selectedPad, setSelectedPad] = useState<PadId>('kick');
   const [flashPads, setFlashPads] = useState<Set<PadId>>(new Set());
 
-  // Stable ref so flash timeout can access latest state
   const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // When pack changes, convert to beat pattern and put into slot A
+  // When pack changes, distribute events to banks A-D by bar
   useEffect(() => {
     if (!pack) return;
-    const newPat = packToBeatPattern(pack);
-    setPatterns(prev => {
-      const next = { ...prev, A: newPat };
-      return next;
-    });
-    onPatternChange(newPat);
+    const newPatterns = packToBeatPattern(pack);
+    setPatterns(newPatterns);
+    onPatternChange(newPatterns);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pack]);
 
-  // When active pattern changes, notify parent
-  // (also fires on pattern content changes via the update helpers below which
-  //  call onPatternChange directly — this covers pattern-bank switching)
   const handlePatternSwitch = useCallback((p: PatternId) => {
     setActivePattern(p);
-    // Use functional update to get latest patterns
     setPatterns(prev => {
-      onPatternChange(prev[p]);
+      onPatternChange(prev);
       return prev;
     });
   }, [onPatternChange]);
@@ -171,7 +201,7 @@ export function BeatMaker(props: BeatMakerProps) {
         ...prev,
         [activePattern]: { ...prev[activePattern], [selectedPad]: steps },
       };
-      onPatternChange(next[activePattern]);
+      onPatternChange(next);
       return next;
     });
   }, [activePattern, selectedPad, onPatternChange]);
@@ -186,7 +216,7 @@ export function BeatMaker(props: BeatMakerProps) {
           [selectedPad]: makeEmptySteps(),
         },
       };
-      onPatternChange(next[activePattern]);
+      onPatternChange(next);
       return next;
     });
   }, [activePattern, selectedPad, onPatternChange]);
@@ -201,7 +231,7 @@ export function BeatMaker(props: BeatMakerProps) {
         ...prev,
         [activePattern]: { ...prev[activePattern], [selectedPad]: steps },
       };
-      onPatternChange(next[activePattern]);
+      onPatternChange(next);
       return next;
     });
   }, [activePattern, selectedPad, onPatternChange]);

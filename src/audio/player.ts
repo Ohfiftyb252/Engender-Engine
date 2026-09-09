@@ -3,27 +3,33 @@ import type { DrumLane, GeneratedPack, MidiEvent, MutationTarget, Step, BeatPatt
 import { mulberry32 } from '../engine/prng';
 
 interface PartEvent {
-  time: string;
+  time: string | number;
   pitch: number;
   duration: number;
   velocity: number;
 }
 
 interface DrumPartEvent {
-  time: string;
+  time: string | number;
   lane: DrumLane;
   velocity: number;
 }
 
 // 16th-note grid position → Tone.js Bars:Beats:Sixteenths
-function gridToTime(pos: number): string {
-  const p = Math.round(pos); // round for BBT string compat
-  return `${Math.floor(p / 16)}:${Math.floor((p % 16) / 4)}:${p % 4}`;
+// Fractional positions (e.g. 14.5) are handled via seconds offset instead of BBT rounding.
+function gridToTime(pos: number, bpm: number): string | number {
+  // If integer position, use BBT string (exact grid alignment)
+  if (pos === Math.floor(pos)) {
+    const p = pos;
+    return `${Math.floor(p / 16)}:${Math.floor((p % 16) / 4)}:${p % 4}`;
+  }
+  // Fractional position → convert to seconds for sub-16th accuracy
+  return pos * (60 / bpm / 4);
 }
 
-function mapEvents(events: MidiEvent[]): PartEvent[] {
+function mapEvents(events: MidiEvent[], bpm: number): PartEvent[] {
   return events.map(e => ({
-    time: gridToTime(e.position),
+    time: gridToTime(e.position, bpm),
     pitch: e.pitch,
     duration: e.duration,
     velocity: e.velocity,
@@ -49,7 +55,12 @@ export class EnginePlayer {
 
   get initialized(): boolean { return this.kickSynth !== null; }
 
-  async load(pack: GeneratedPack): Promise<void> {
+  setSwing(swing: number): void {
+    Tone.Transport.swing = swing;
+    (Tone.Transport as unknown as Record<string, unknown>).swingSubdivision = '16n';
+  }
+
+  async load(pack: GeneratedPack, swing = 0): Promise<void> {
     this.dispose();
     await Tone.start();
     // Explicit resume for iOS Safari / Chrome Android — AudioContext may stay
@@ -66,6 +77,8 @@ export class EnginePlayer {
     Tone.Transport.loop = true;
     Tone.Transport.loopStart = 0;
     Tone.Transport.loopEnd = loopEnd;
+    Tone.Transport.swing = swing;
+    (Tone.Transport as unknown as Record<string, unknown>).swingSubdivision = '16n';
 
     const s16 = 60 / pack.state.bpm / 4;
 
@@ -156,12 +169,23 @@ export class EnginePlayer {
     this.hatSynth.chain(hatHpf, knockClipper);
     this.fx.push(hatHpf);
 
+    // ─── STEP COUNTER SEQUENCE ───────────────────────────────────────────────
+    // Drives the BeatMaker step cursor (0-15 per bar) without affecting audio.
+    // Array length = bars*16 → Sequence auto-loops at the right length.
+    const stepSeq = new Tone.Sequence<number>((_time, step) => {
+      this.onStep?.(step % 16);
+    }, [...Array(bars * 16).keys()], '16n');
+    stepSeq.loop = true;
+    stepSeq.start(0);
+    this.stepSeq = stepSeq;
+
     // ─── SCHEDULE PARTS ──────────────────────────────────────────────────────
+    const bpm = pack.state.bpm;
     const makePart = (
       events: MidiEvent[],
       trigger: (time: number, e: PartEvent) => void
     ): Tone.Part<PartEvent> => {
-      const part = new Tone.Part<PartEvent>(trigger, mapEvents(events));
+      const part = new Tone.Part<PartEvent>(trigger, mapEvents(events, bpm));
       part.loop = true;
       part.loopEnd = loopEnd;
       part.start(0);
@@ -192,9 +216,9 @@ export class EnginePlayer {
       }),
     );
 
-    // Drum part — positions rounded to 16th grid for BBT compat
+    // Drum part — positions use fractional-aware gridToTime
     const drumItems: DrumPartEvent[] = pack.drums.events.map(e => ({
-      time: gridToTime(e.position),
+      time: gridToTime(e.position, bpm),
       lane: e.lane,
       velocity: e.velocity,
     }));

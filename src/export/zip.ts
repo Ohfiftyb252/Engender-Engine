@@ -183,7 +183,7 @@ function buildReadMe(
     '  CHORDS:',
     '    Add channel → Pad / Synth → Import MIDI → Chords.mid',
     '',
-    `Generated with ENGENDER ENGINE™ v${APP_VERSION}  engineVersion=${APP_VERSION}`,
+    `Generated with ENGENDER ENGINE™ v${APP_VERSION}  engineVersion=${ENGINE_VERSION}`,
   ].join('\n');
 }
 

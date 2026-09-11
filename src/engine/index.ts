@@ -7,7 +7,7 @@ import { generateMelody } from './melody';
 import { generateBass } from './bass';
 import { generateDrums } from './drums';
 import { applyPocketProtection } from './pocket';
-import { applyMutation, applyDimensionMutation } from './mutation';
+import { applyMutation, applyDimensionMutationToPack } from './mutation';
 import { generateFingerprint } from './fingerprint';
 import { computeTelemetry } from './telemetry';
 import { humanizeEvents } from './humanize';
@@ -33,12 +33,12 @@ export function runEngine(state: EngineState): GeneratedPack {
 
   const { chords, melody, bass } = applyPocketProtection(rawChords, rawMelody, rawBass);
 
-  const hChords = humanizeEvents(masterBranches.humanize, chords, dna.velocityVariance * 0.3);
-  const hMelody = humanizeEvents(masterBranches.humanize, melody, dna.velocityVariance * 0.5);
-  const hBass   = humanizeEvents(masterBranches.humanize, bass,   dna.velocityVariance * 0.4);
+  const hChords = humanizeEvents(masterBranches.humanizeChords, chords, dna.velocityVariance * 0.3);
+  const hMelody = humanizeEvents(masterBranches.humanizeMelody, melody, dna.velocityVariance * 0.5);
+  const hBass   = humanizeEvents(masterBranches.humanizeBass,   bass,   dna.velocityVariance * 0.4);
 
   const drums: DrumPattern = { events: drumEvents };
-  const scores      = computeTelemetry(hChords, hMelody, hBass);
+  const scores      = computeTelemetry(hChords, hMelody, hBass, bars);
   const fingerprint = generateFingerprint(state, { chords: hChords, melody: hMelody, bass: hBass, drums: drumEvents });
 
   return { chords: hChords, melody: hMelody, bass: hBass, drums, fingerprint, scores, state };
@@ -68,5 +68,5 @@ export function mutateVoiceWithDimension(
   target: MutationTarget,
   dimension: MutationDimension,
 ): GeneratedPack {
-  return runEngine(applyDimensionMutation(currentPack.state, target, dimension));
+  return applyDimensionMutationToPack(currentPack, target, dimension);
 }

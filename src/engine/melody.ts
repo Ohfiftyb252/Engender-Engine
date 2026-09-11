@@ -12,7 +12,8 @@ export function generateMelody(rng: () => number, dna: DNAProfile, genre: GenreP
   for (let p = MEL_MIN; p <= MEL_MAX; p++) allPitches.push(p);
   if (scalePitches.length === 0) return [];
 
-  const targetNotes = Math.round(genre.melodyDensity * 4 * (1 - dna.rhythmGapBias * 0.6));
+  const bars = totalTicks / 16;
+  const targetNotes = Math.max(bars * 4, Math.round(genre.melodyDensity * bars * (1 - dna.rhythmGapBias * 0.6)));
   const grid = buildRhythmGrid(rng, dna, genre, Math.max(3, targetNotes), true, totalTicks);
   const events: MidiEvent[] = [];
   const [velMin, velMax] = genre.velocityRange;
